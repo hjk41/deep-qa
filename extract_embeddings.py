@@ -1,4 +1,4 @@
-import numpy as np
+﻿import numpy as np
 import cPickle
 import os
 
@@ -20,6 +20,7 @@ def main():
   data_dirs = [
               'TRAIN',
               'TRAIN-ALL',
+              'HB06_TRAIN'
               ]
 
   for data_dir in data_dirs:

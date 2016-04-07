@@ -1,4 +1,4 @@
-import re
+﻿import re
 import os
 import numpy as np
 import cPickle
@@ -6,7 +6,9 @@ import subprocess
 from collections import defaultdict
 
 from alphabet import Alphabet
-
+import ptvsd
+#ptvsd.enable_attach(secret='secret', address=('0.0.0.0', 9999))
+#ptvsd.wait_for_attach()
 
 UNKNOWN_WORD_IDX = 0
 
@@ -34,7 +36,8 @@ def load_data(fname):
       label = label.group(1)
       label = 1 if label == 'positive' else 0
       answer = line.lower().split('\t')
-      if len(answer) > 60:
+      #if len(answer) > 60:
+      if len(answer) > 70:
         num_skipped += 1
         continue
       labels.append(label)
@@ -47,6 +50,46 @@ def load_data(fname):
   print 'num_skipped', num_skipped
   return qids, questions, answers, labels
 
+def load_tsv(fname):
+  lines = open(fname).readlines()
+  # skip tsv header
+  #header = lines.pop(0)
+  #print 'fields: ', header
+  qids, questions, answers, labels = [], [], [], []
+  qid = 0
+  num_skipped = 0
+  prev = ''
+  prevQ = ''
+  qid2num_answers = {}
+  for i, line in enumerate(lines):
+    line = line.strip()
+    # Query   Url     PassageID       Passage Rating1 Rating2
+    qupprr=line.split('\t')
+    q = qupprr[0]
+    if (q != prevQ):
+      qid = qid + 1
+      qid2num_answers[qid] = 0
+      prevQ = q
+
+    question = q.lower().strip('\"').split(' ')
+    r2 = qupprr[5].lower()
+    if (r2 == 'good' or r2 == 'perfect'):
+      label = 1
+    else:
+      lable = 0
+    answer = qupprr[3].lower().split()
+    if len(answer) > 70:
+      num_skipped += 1
+      continue
+    labels.append(label)
+    answers.append(answer)
+    questions.append(question)
+    qids.append(qid)
+    qid2num_answers[qid] += 1
+    prev = line
+  # print sorted(qid2num_answers.items(), key=lambda x: float(x[0]))
+  print 'num_skipped', num_skipped
+  return qids, questions, answers, labels
 
 def compute_overlap_features(questions, answers, word2df=None, stoplist=None):
   word2df = word2df if word2df else {}
@@ -142,7 +185,6 @@ def convert2indices(data, alphabet, dummy_word_idx, max_sent_length=40):
   return data_idx
 
 
-
 if __name__ == '__main__':
   # stoplist = set([line.strip() for line in open('en.txt')])
   # import string
@@ -151,15 +193,18 @@ if __name__ == '__main__':
   stoplist = None
 
 
-  train = 'jacana-qa-naacl2013-data-results/train.xml'
-  train_all = 'jacana-qa-naacl2013-data-results/train-all.xml'
-  train_files = [train, train_all]
+  #train = 'jacana-qa-naacl2013-data-results/train.xml'
+  #train_all = 'jacana-qa-naacl2013-data-results/train-all.xml'
+  #train_files = [train, train_all]
+  train_files = ['/home/hct/qa/data/relevance/hb06_train.xml']
 
   for train in train_files:
     print train
 
-    dev = 'jacana-qa-naacl2013-data-results/dev.xml'
-    test = 'jacana-qa-naacl2013-data-results/test.xml'
+    #dev = 'jacana-qa-naacl2013-data-results/dev.xml'
+    #test = 'jacana-qa-naacl2013-data-results/test.xml'
+    dev = '/home/hct/qa/data/relevance/hb06_dev.xml'
+    test ='/home/hct/qa/data/relevance/hb03.xml'
 
     train_basename = os.path.basename(train)
     name, ext = os.path.splitext(train_basename)
@@ -247,3 +292,4 @@ if __name__ == '__main__':
 
       np.save(os.path.join(outdir, '{}.q_overlap_indices.npy'.format(basename)), q_overlap_indices)
       np.save(os.path.join(outdir, '{}.a_overlap_indices.npy'.format(basename)), a_overlap_indices)
+

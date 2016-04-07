@@ -1,4 +1,4 @@
-from datetime import datetime
+﻿from datetime import datetime
 from sklearn import metrics
 from theano import tensor as T
 import cPickle
@@ -18,6 +18,10 @@ import sgd_trainer
 import warnings
 warnings.filterwarnings("ignore")  # TODO remove
 
+import ptvsd
+#ptvsd.enable_attach(secret='secret', address=('0.0.0.0', 9999))
+#ptvsd.wait_for_attach()
+
 ### THEANO DEBUG FLAGS
 # theano.config.optimizer = 'fast_compile'
 # theano.config.exception_verbosity = 'high'
@@ -32,7 +36,7 @@ def main():
   mode = 'train'
   if len(sys.argv) > 1:
     mode = sys.argv[1]
-    if not mode in ['TRAIN', 'TRAIN-ALL']:
+    if not mode in ['TRAIN', 'TRAIN-ALL', 'HB06_TRAIN']:
       print "ERROR! The two possible training settings are: ['TRAIN', 'TRAIN-ALL']"
       sys.exit(1)
 
@@ -41,31 +45,31 @@ def main():
   data_dir = mode
 
   if mode in ['TRAIN-ALL']:
-    q_train = numpy.load(os.path.join(data_dir, 'train-all.questions.npy'))
-    a_train = numpy.load(os.path.join(data_dir, 'train-all.answers.npy'))
-    q_overlap_train = numpy.load(os.path.join(data_dir, 'train-all.q_overlap_indices.npy'))
-    a_overlap_train = numpy.load(os.path.join(data_dir, 'train-all.a_overlap_indices.npy'))
-    y_train = numpy.load(os.path.join(data_dir, 'train-all.labels.npy'))
+    q_train = numpy.load(os.path.join(data_dir, 'train-all.questions.npy')).astype(numpy.float32)
+    a_train = numpy.load(os.path.join(data_dir, 'train-all.answers.npy')).astype(numpy.float32)
+    q_overlap_train = numpy.load(os.path.join(data_dir, 'train-all.q_overlap_indices.npy')).astype(numpy.float32)
+    a_overlap_train = numpy.load(os.path.join(data_dir, 'train-all.a_overlap_indices.npy')).astype(numpy.float32)
+    y_train = numpy.load(os.path.join(data_dir, 'train-all.labels.npy')).astype(numpy.float32)
   else:
-    q_train = numpy.load(os.path.join(data_dir, 'train.questions.npy'))
-    a_train = numpy.load(os.path.join(data_dir, 'train.answers.npy'))
-    q_overlap_train = numpy.load(os.path.join(data_dir, 'train.q_overlap_indices.npy'))
-    a_overlap_train = numpy.load(os.path.join(data_dir, 'train.a_overlap_indices.npy'))
-    y_train = numpy.load(os.path.join(data_dir, 'train.labels.npy'))
+    q_train = numpy.load(os.path.join(data_dir, 'train.questions.npy')).astype(numpy.float32)
+    a_train = numpy.load(os.path.join(data_dir, 'train.answers.npy')).astype(numpy.float32)
+    q_overlap_train = numpy.load(os.path.join(data_dir, 'train.q_overlap_indices.npy')).astype(numpy.float32)
+    a_overlap_train = numpy.load(os.path.join(data_dir, 'train.a_overlap_indices.npy')).astype(numpy.float32)
+    y_train = numpy.load(os.path.join(data_dir, 'train.labels.npy')).astype(numpy.float32)
 
-  q_dev = numpy.load(os.path.join(data_dir, 'dev.questions.npy'))
-  a_dev = numpy.load(os.path.join(data_dir, 'dev.answers.npy'))
-  q_overlap_dev = numpy.load(os.path.join(data_dir, 'dev.q_overlap_indices.npy'))
-  a_overlap_dev = numpy.load(os.path.join(data_dir, 'dev.a_overlap_indices.npy'))
-  y_dev = numpy.load(os.path.join(data_dir, 'dev.labels.npy'))
-  qids_dev = numpy.load(os.path.join(data_dir, 'dev.qids.npy'))
+  q_dev = numpy.load(os.path.join(data_dir, 'dev.questions.npy')).astype(numpy.float32)
+  a_dev = numpy.load(os.path.join(data_dir, 'dev.answers.npy')).astype(numpy.float32)
+  q_overlap_dev = numpy.load(os.path.join(data_dir, 'dev.q_overlap_indices.npy')).astype(numpy.float32)
+  a_overlap_dev = numpy.load(os.path.join(data_dir, 'dev.a_overlap_indices.npy')).astype(numpy.float32)
+  y_dev = numpy.load(os.path.join(data_dir, 'dev.labels.npy')).astype(numpy.float32)
+  qids_dev = numpy.load(os.path.join(data_dir, 'dev.qids.npy')).astype(numpy.float32)
 
-  q_test = numpy.load(os.path.join(data_dir, 'test.questions.npy'))
-  a_test = numpy.load(os.path.join(data_dir, 'test.answers.npy'))
-  q_overlap_test = numpy.load(os.path.join(data_dir, 'test.q_overlap_indices.npy'))
-  a_overlap_test = numpy.load(os.path.join(data_dir, 'test.a_overlap_indices.npy'))
-  y_test = numpy.load(os.path.join(data_dir, 'test.labels.npy'))
-  qids_test = numpy.load(os.path.join(data_dir, 'test.qids.npy'))
+  #q_test = numpy.load(os.path.join(data_dir, 'test.questions.npy')).astype(numpy.float32)
+  #a_test = numpy.load(os.path.join(data_dir, 'test.answers.npy')).astype(numpy.float32)
+  #q_overlap_test = numpy.load(os.path.join(data_dir, 'test.q_overlap_indices.npy')).astype(numpy.float32)
+  #a_overlap_test = numpy.load(os.path.join(data_dir, 'test.a_overlap_indices.npy')).astype(numpy.float32)
+  #y_test = numpy.load(os.path.join(data_dir, 'test.labels.npy')).astype(numpy.float32)
+  #qids_test = numpy.load(os.path.join(data_dir, 'test.qids.npy')).astype(numpy.float32)
 
   # x_train = numpy.load(os.path.join(data_dir, 'train.overlap_feats.npy'))
   # x_dev = numpy.load(os.path.join(data_dir, 'dev.overlap_feats.npy'))
@@ -82,15 +86,15 @@ def main():
 
   print 'y_train', numpy.unique(y_train, return_counts=True)
   print 'y_dev', numpy.unique(y_dev, return_counts=True)
-  print 'y_test', numpy.unique(y_test, return_counts=True)
+  #print 'y_test', numpy.unique(y_test, return_counts=True)
 
   print 'q_train', q_train.shape
   print 'q_dev', q_dev.shape
-  print 'q_test', q_test.shape
+  #print 'q_test', q_test.shape
 
   print 'a_train', a_train.shape
   print 'a_dev', a_dev.shape
-  print 'a_test', a_test.shape
+  #print 'a_test', a_test.shape
 
   ## Get the word embeddings from the nnet trained on SemEval
   # ndim = 40
@@ -124,7 +128,7 @@ def main():
   dummpy_word_idx = numpy.max(a_train)
   print "Word embedding matrix size:", vocab_emb.shape
 
-  x = T.dmatrix('x')
+  x = T.fmatrix('x')
   x_q = T.lmatrix('q')
   x_q_overlap = T.lmatrix('q_overlap')
   x_a = T.lmatrix('a')
@@ -375,15 +379,18 @@ def main():
   train_fn = theano.function(inputs=inputs_train,
                              outputs=cost,
                              updates=updates,
-                             givens=givens_train)
+                             givens=givens_train,
+                             allow_input_downcast=True)
 
   pred_fn = theano.function(inputs=inputs_pred,
                             outputs=predictions,
-                            givens=givens_pred)
+                            givens=givens_pred,
+                             allow_input_downcast=True)
 
   pred_prob_fn = theano.function(inputs=inputs_pred,
                             outputs=predictions_prob,
-                            givens=givens_pred)
+                            givens=givens_pred,
+                             allow_input_downcast=True)
 
   def predict_batch(batch_iterator):
     preds = numpy.hstack([pred_fn(batch_x_q, batch_x_a, batch_x_q_overlap, batch_x_a_overlap) for batch_x_q, batch_x_a, batch_x_q_overlap, batch_x_a_overlap, _ in batch_iterator])
@@ -395,10 +402,10 @@ def main():
 
   train_set_iterator = sgd_trainer.MiniBatchIteratorConstantBatchSize(numpy_rng, [q_train, a_train, q_overlap_train, a_overlap_train, y_train], batch_size=batch_size, randomize=True)
   dev_set_iterator = sgd_trainer.MiniBatchIteratorConstantBatchSize(numpy_rng, [q_dev, a_dev, q_overlap_dev, a_overlap_dev, y_dev], batch_size=batch_size, randomize=False)
-  test_set_iterator = sgd_trainer.MiniBatchIteratorConstantBatchSize(numpy_rng, [q_test, a_test, q_overlap_test, a_overlap_test, y_test], batch_size=batch_size, randomize=False)
+  #test_set_iterator = sgd_trainer.MiniBatchIteratorConstantBatchSize(numpy_rng, [q_test, a_test, q_overlap_test, a_overlap_test, y_test], batch_size=batch_size, randomize=False)
 
-  labels = sorted(numpy.unique(y_test))
-  print 'labels', labels
+  #labels = sorted(numpy.unique(y_test))
+  #print 'labels', labels
 
   def map_score(qids, labels, preds):
     qid2cand = defaultdict(list)
@@ -447,10 +454,11 @@ def main():
             # # dev_acc = map_score(qids_dev, y_dev, predict_prob_batch(dev_set_iterator)) * 100
             dev_acc = metrics.roc_auc_score(y_dev, y_pred_dev) * 100
             if dev_acc > best_dev_acc:
-              y_pred = predict_prob_batch(test_set_iterator)
-              test_acc = map_score(qids_test, y_test, y_pred) * 100
+              #y_pred = predict_prob_batch(test_set_iterator)
+              #test_acc = map_score(qids_test, y_test, y_pred) * 100
 
-              print('epoch: {} batch: {} dev auc: {:.4f}; test map: {:.4f}; best_dev_acc: {:.4f}'.format(epoch, i, dev_acc, test_acc, best_dev_acc))
+              #print('epoch: {} batch: {} dev auc: {:.4f}; test map: {:.4f}; best_dev_acc: {:.4f}'.format(epoch, i, dev_acc, test_acc, best_dev_acc))
+              print('epoch: {} batch: {} dev auc: {:.4f}; best_dev_acc: {:.4f}'.format(epoch, i, dev_acc, best_dev_acc))
               best_dev_acc = dev_acc
               best_params = [numpy.copy(p.get_value(borrow=True)) for p in params]
               no_best_dev_update = 0
@@ -462,6 +470,19 @@ def main():
       print('epoch {} took {:.4f} seconds'.format(epoch, time.time() - timer))
       epoch += 1
       no_best_dev_update += 1
+
+  q_test = numpy.load(os.path.join(data_dir, 'test.questions.npy')).astype(numpy.float32)
+  a_test = numpy.load(os.path.join(data_dir, 'test.answers.npy')).astype(numpy.float32)
+  q_overlap_test = numpy.load(os.path.join(data_dir, 'test.q_overlap_indices.npy')).astype(numpy.float32)
+  a_overlap_test = numpy.load(os.path.join(data_dir, 'test.a_overlap_indices.npy')).astype(numpy.float32)
+  y_test = numpy.load(os.path.join(data_dir, 'test.labels.npy')).astype(numpy.float32)
+  qids_test = numpy.load(os.path.join(data_dir, 'test.qids.npy')).astype(numpy.float32)
+  test_set_iterator = sgd_trainer.MiniBatchIteratorConstantBatchSize(numpy_rng, [q_test, a_test, q_overlap_test, a_overlap_test, y_test], batch_size=batch_size, randomize=False)
+  labels = sorted(numpy.unique(y_test))
+  print 'labels', labels
+
+  y_pred = predict_prob_batch(test_set_iterator)
+  test_acc = map_score(qids_test, y_test, y_pred) * 100
 
   print('Training took: {:.4f} seconds'.format(time.time() - timer_train))
   for i, param in enumerate(best_params):
