@@ -19,13 +19,17 @@ import warnings
 warnings.filterwarnings("ignore")  # TODO remove
 
 import ptvsd
-#ptvsd.enable_attach(secret='secret', address=('0.0.0.0', 9999))
+#ptvsd.enable_attach(secret='secret')
 #ptvsd.wait_for_attach()
 
 ### THEANO DEBUG FLAGS
 # theano.config.optimizer = 'fast_compile'
 # theano.config.exception_verbosity = 'high'
 
+n_epochs = 25
+batch_size = 500
+n_dev_batch = 20
+n_iter_per_val = 100
 
 def main():
   # ZEROUT_DUMMY_WORD = False
@@ -58,11 +62,16 @@ def main():
     y_train = numpy.load(os.path.join(data_dir, 'train.labels.npy')).astype(numpy.float32)
 
   q_dev = numpy.load(os.path.join(data_dir, 'dev.questions.npy')).astype(numpy.float32)
-  a_dev = numpy.load(os.path.join(data_dir, 'dev.answers.npy')).astype(numpy.float32)
-  q_overlap_dev = numpy.load(os.path.join(data_dir, 'dev.q_overlap_indices.npy')).astype(numpy.float32)
-  a_overlap_dev = numpy.load(os.path.join(data_dir, 'dev.a_overlap_indices.npy')).astype(numpy.float32)
-  y_dev = numpy.load(os.path.join(data_dir, 'dev.labels.npy')).astype(numpy.float32)
-  qids_dev = numpy.load(os.path.join(data_dir, 'dev.qids.npy')).astype(numpy.float32)
+  dev_size = q_dev.shape[0]
+  sample_idx = numpy.arange(dev_size)
+  numpy.random.shuffle(sample_idx)
+  sample_idx = sample_idx[:n_dev_batch * batch_size]
+  q_dev = q_dev[sample_idx]
+  a_dev = numpy.load(os.path.join(data_dir, 'dev.answers.npy')).astype(numpy.float32)[sample_idx]
+  q_overlap_dev = numpy.load(os.path.join(data_dir, 'dev.q_overlap_indices.npy')).astype(numpy.float32)[sample_idx]
+  a_overlap_dev = numpy.load(os.path.join(data_dir, 'dev.a_overlap_indices.npy')).astype(numpy.float32)[sample_idx]
+  y_dev = numpy.load(os.path.join(data_dir, 'dev.labels.npy')).astype(numpy.float32)[sample_idx]
+  qids_dev = numpy.load(os.path.join(data_dir, 'dev.qids.npy')).astype(numpy.float32)[sample_idx]
 
   #q_test = numpy.load(os.path.join(data_dir, 'test.questions.npy')).astype(numpy.float32)
   #a_test = numpy.load(os.path.join(data_dir, 'test.answers.npy')).astype(numpy.float32)
@@ -138,8 +147,6 @@ def main():
   #######
   n_outs = 2
 
-  n_epochs = 25
-  batch_size = 50
   learning_rate = 0.1
   max_norm = 0
 
@@ -449,7 +456,7 @@ def main():
           if ZEROUT_DUMMY_WORD:
             zerout_dummy_word()
 
-          if i % 10 == 0 or i == num_train_batches:
+          if i % n_iter_per_val == 0 or i == num_train_batches:
             y_pred_dev = predict_prob_batch(dev_set_iterator)
             # # dev_acc = map_score(qids_dev, y_dev, predict_prob_batch(dev_set_iterator)) * 100
             dev_acc = metrics.roc_auc_score(y_dev, y_pred_dev) * 100
