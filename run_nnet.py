@@ -73,59 +73,26 @@ def main():
   y_dev = numpy.load(os.path.join(data_dir, 'dev.labels.npy')).astype(numpy.float32)[sample_idx]
   qids_dev = numpy.load(os.path.join(data_dir, 'dev.qids.npy')).astype(numpy.float32)[sample_idx]
 
-  #q_test = numpy.load(os.path.join(data_dir, 'test.questions.npy')).astype(numpy.float32)
-  #a_test = numpy.load(os.path.join(data_dir, 'test.answers.npy')).astype(numpy.float32)
-  #q_overlap_test = numpy.load(os.path.join(data_dir, 'test.q_overlap_indices.npy')).astype(numpy.float32)
-  #a_overlap_test = numpy.load(os.path.join(data_dir, 'test.a_overlap_indices.npy')).astype(numpy.float32)
-  #y_test = numpy.load(os.path.join(data_dir, 'test.labels.npy')).astype(numpy.float32)
-  #qids_test = numpy.load(os.path.join(data_dir, 'test.qids.npy')).astype(numpy.float32)
-
-  # x_train = numpy.load(os.path.join(data_dir, 'train.overlap_feats.npy'))
-  # x_dev = numpy.load(os.path.join(data_dir, 'dev.overlap_feats.npy'))
-  # x_test = numpy.load(os.path.join(data_dir, 'test.overlap_feats.npy'))
-
-  # feats_ndim = x_train.shape[1]
-
-  # from sklearn.preprocessing import StandardScaler
-  # scaler = StandardScaler()
-  # print "Scaling overlap features"
-  # x_train = scaler.fit_transform(x_train)
-  # x_dev = scaler.transform(x_dev)
-  # x_test = scaler.transform(x_test)
-
   print 'y_train', numpy.unique(y_train, return_counts=True)
   print 'y_dev', numpy.unique(y_dev, return_counts=True)
-  #print 'y_test', numpy.unique(y_test, return_counts=True)
 
   print 'q_train', q_train.shape
   print 'q_dev', q_dev.shape
-  #print 'q_test', q_test.shape
 
   print 'a_train', a_train.shape
   print 'a_dev', a_dev.shape
-  #print 'a_test', a_test.shape
-
-  ## Get the word embeddings from the nnet trained on SemEval
-  # ndim = 40
-  # nnet_outdir = 'exp/ndim=60;batch=100;max_norm=0;learning_rate=0.1;2014-12-02-15:53:14'
-  # nnet_fname = os.path.join(nnet_outdir, 'nnet.dat')
-  # params_fname = os.path.join(nnet_outdir, 'best_dev_params.epoch=00;batch=14640;dev_f1=83.12;test_acc=85.00.dat')
-  # train_nnet, test_nnet = nn_layers.load_nnet(nnet_fname, params_fname)
 
   numpy_rng = numpy.random.RandomState(123)
   q_max_sent_size = q_train.shape[1]
   a_max_sent_size = a_train.shape[1]
-  # print 'max', numpy.max(a_train)
-  # print 'min', numpy.min(a_train)
+  print 'max', numpy.max(a_train)
+  print 'min', numpy.min(a_train)
 
   ndim = 5
   print "Generating random vocabulary for word overlap indicator features with dim:", ndim
   dummy_word_id = numpy.max(a_overlap_train)
-  # vocab_emb_overlap = numpy_rng.uniform(-0.25, 0.25, size=(dummy_word_id+1, ndim))
   print "Gaussian"
   vocab_emb_overlap = numpy_rng.randn(dummy_word_id+1, ndim) * 0.25
-  # vocab_emb_overlap = numpy_rng.randn(dummy_word_id+1, ndim) * 0.05
-  # vocab_emb_overlap = numpy_rng.uniform(-0.25, 0.25, size=(dummy_word_id+1, ndim))
   vocab_emb_overlap[-1] = 0
 
   # Load word2vec embeddings
@@ -146,7 +113,6 @@ def main():
 
   #######
   n_outs = 2
-
   learning_rate = 0.1
   max_norm = 0
 
