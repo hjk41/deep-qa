@@ -146,7 +146,9 @@ def compute_overlap_idx(questions, answers, stoplist, q_max_sent_length, a_max_s
     a_set = set([a for a in answer if a not in stoplist])
     word_overlap = q_set.intersection(a_set)
 
-    q_idx = np.ones(q_max_sent_length) * 2    # why *2?
+    # why *2? it actually makes all the elements 2. 
+    # so 0 is non-overlap, 1 is overlap, and 2 is empty word
+    q_idx = np.ones(q_max_sent_length) * 2    
     for i, q in enumerate(question):
       value = 0
       if q in word_overlap:
@@ -240,6 +242,27 @@ def convert_dataset(qids, questions, answers, labels,
   np.save(os.path.join(outdir, '{}.q_overlap_indices.npy'.format(basename)), q_overlap_indices)
   np.save(os.path.join(outdir, '{}.a_overlap_indices.npy'.format(basename)), a_overlap_indices)
 
+def dump_embedding(outdir, embeddingfile, alphabet):
+  words = alphabet.keys()
+  print "Vocab size: ", len(alphabet)
+  word2vec = load_bin_vec(embeddingfile, words)
+  ndim = len(word2vec[word2vec.keys()[0]])
+  print 'embedding dim: ', ndim
+  random_words_count = 0
+  vocab_emb = np.zeros((len(alphabet) + 1, ndim))
+  for word, idx in alphabet.iteritems():
+    word_vec = word2vec.get(word, None)
+    if word_vec is None:
+      word_vec = np.random.uniform(-0.25, 0.25, ndim)
+      random_words_count += 1
+    vocab_emb[idx] = word_vec
+  print "Using zero vector as random"
+  print 'random_words_count', random_words_count
+  print 'vocab_emb.shape', vocab_emb.shape
+  outfile = os.path.join(outdir, 'emb_{}.npy'.format(os.path.basename(fname)))
+  print 'saving embedding file', outfile
+  np.save(outfile, vocab_emb)
+
 if __name__ == '__main__':
   '''
   parses a dataset (including train, validation, and test) into float features
@@ -290,7 +313,10 @@ if __name__ == '__main__':
   basename = os.path.basename(train)
   cPickle.dump(alphabet, open(os.path.join(outdir, 'vocab.pickle'), 'w'))
   print "alphabet size=", len(alphabet)
+
+  # dump embedding file
   dummy_word_idx = alphabet.fid
+  dump_embedding(outdir, 'embeddings/aquaint+wiki.txt.gz.ndim=50.bin', alphabet)
 
   # summarize max sentense length
   q_max_sent_length = max(map(lambda x: len(x), questions))
