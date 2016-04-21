@@ -5,6 +5,7 @@ import cPickle
 import subprocess
 import sys
 from collections import defaultdict
+from utils import load_bin_vec
 
 from alphabet import Alphabet
 import ptvsd
@@ -55,28 +56,42 @@ def load_xml(fname):
   print 'num_skipped: ', num_skipped
   return unique_questions, qids, questions, answers, labels
 
+def passage2list(psg):
+  '''
+  split the passage into a list of words
+  punctuations will be split from words if there is no whitespace between a puctuation and a word
+  '''
+  psg = ''
+  ret = psg.split(' ')
+  
+
 def load_tsv(fname):
   lines = open(fname).readlines()
   # skip tsv header
   #header = lines.pop(0)
   #print 'fields: ', header
-  qids, questions, answers, labels = [], [], [], []
-  qid = 0
+  unique_questions, qids, questions, answers, labels = [], [], [], [], []
+  curr_qid = 0
   num_skipped = 0
-  prev = ''
-  prevQ = ''
-  qid2num_answers = {}
+  questions2qid = {}
   for i, line in enumerate(lines):
     line = line.strip()
     # Query   Url     PassageID       Passage Rating1 Rating2
     qupprr=line.split('\t')
+    if len(qupprr) != 6:
+      print('error parsing line', i)
+      print('line:\n', line)
+      exit(1)
     q = qupprr[0]
-    if (q != prevQ):
-      qid = qid + 1
-      qid2num_answers[qid] = 0
-      prevQ = q
-
-    question = q.lower().strip('\"').split(' ')
+    question = q.split(' ')
+    if not q in questions2qid:
+      questions2qid[q] = curr_qid
+      qid = curr_qid
+      curr_qid += 1
+    else:
+      qid = questions2qid[q]
+    
+    
     r2 = qupprr[5].lower()
     if (r2 == 'good' or r2 == 'perfect'):
       label = 1
@@ -259,7 +274,7 @@ def dump_embedding(outdir, embeddingfile, alphabet):
   print "Using zero vector as random"
   print 'random_words_count', random_words_count
   print 'vocab_emb.shape', vocab_emb.shape
-  outfile = os.path.join(outdir, 'emb_{}.npy'.format(os.path.basename(fname)))
+  outfile = os.path.join(outdir, 'emb_{}.npy'.format(os.path.basename(embeddingfile)))
   print 'saving embedding file', outfile
   np.save(outfile, vocab_emb)
 
