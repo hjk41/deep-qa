@@ -1,4 +1,4 @@
-﻿from datetime import datetime
+from datetime import datetime
 from sklearn import metrics
 from theano import tensor as T
 import cPickle
@@ -30,108 +30,6 @@ n_epochs = 25
 batch_size = 50
 n_dev_batch = 20
 n_iter_per_val = 100
-n_outs = 2
-learning_rate = 0.1
-max_norm = 0
-
-def conv_layer(batch_size,
-    max_sent_length,
-    embedding,                # embedding dictionary, from id to vector, static
-    embedding_overlap,        # embedding matrix for the overlap feature, will be updated
-    numpy_randg,              # numpy random number generator
-    x,                        # intput matrix, each sentense is a row, each element is index
-    x_overlap,                # overlap matrix
-    filter_widths = [5],      # list of filter widths to use, currently [5]
-    n_conv_kern = 100,        # number of convolution kernels, currently 100
-    n_input_channel = 1,
-    pooling_k_max = 1):              # output of max polling, currently 1
-  '''
-  Build the convolution layer that convs the q and a
-  
-  Returns a network with input (x, x_overlap)
-  '''
-  # perform lookup and then pad the matrix so we can later use it in conv
-  lookup_table_words = nn_layers.LookupTableFastStatic(W=embedding, pad=max(filter_widths)-1)
-  lookup_table_overlap = nn_layers.LookupTableFast(W=embedding_overlap, pad=max(filter_widths)-1)
-  # concatenate the outputs of words and overlap into one
-  # now the output dim is embedding+embedding_overlap, currently 50+5
-  lookup_table = nn_layers.ParallelLookupTable(layers=[lookup_table_words, lookup_table_overlap])
-  ndim = embedding.shape[1] + embedding_overlap.shape[1]
-  input_shape = (batch_size, n_input_channel, max_sent_length + 2*(max(filter_widths)-1), ndim)
-  conv_layers = []
-  for filter_width in filter_widths:
-    filter_shape = (n_conv_kern, n_input_channel, filter_width, ndim)
-    conv = nn_layers.Conv2dLayer(rng=numpy_randg, filter_shape=filter_shape, input_shape=input_shape)
-    non_linearity = nn_layers.NonLinearityLayer(b_size=filter_shape[0], activation=T.tanh)
-    pooling = nn_layers.KMaxPoolLayer(k_max=pooling_k_max)
-    conv2dNonLinearMaxPool = nn_layers.FeedForwardNet(layers=[conv, non_linearity, pooling])
-    conv_layers.append(conv2dNonLinearMaxPool)
-  join_layer = nn_layers.ParallelLayer(layers=conv_layers)
-  flatten_layer = nn_layers.FlattenLayer()
-  nnet = nn_layers.FeedForwardNet(layers=[
-                                  lookup_table,
-                                  join_layer,
-                                  flatten_layer,
-                                  ])
-  nnet.set_input((x, x_overlap))
-  return nnet
-
-def deep_qa_net(batch_size,
-    embedding,                # embedding dictionary, from id to vector, static
-    embedding_overlap,        # embedding matrix for the overlap feature, will be updated
-    q_max_sent_length,
-    a_max_sent_length,
-    numpy_randg,              # numpy random number generator
-    x,                        # input symbols
-    x_q,
-    x_q_overlap,
-    x_a,
-    x_a_overlap,
-    y,
-    n_conv_kern = 100,        # number of convolution kernels, currently 100
-    n_input_channel = 1,
-    q_k_max = 1,              # output of max polling, currently 1
-    a_k_max = 1,              
-    dropout = 0.5):    
-  '''
-  Builds deepQA network
-
-  batch_size:               int, size of the batch
-  max_sent_length:          int, maximum length of sentense
-  embedding:                numpy array, embedding dictionary, from id to vector, static
-  embedding_overlap:        numpy array, embedding matrix for the overlap feature, will be updated
-  n_conv_kern               int, number of convolution kernels, currently 100
-  n_input_channel           int, number of input channel for convolution, currently 1
-  '''
-  q_filter_widths = [5]
-  a_filter_widths = [5]
-  ## question conv
-  nnet_q = conv_layer(batch_size, q_max_sent_length, 
-                      embedding, embedding_overlap, numpy_randg, 
-                      x_q, x_q_overlap,
-                      q_filter_widths, 100, 1, 1)
-  ## answer conv
-  nnet_a = conv_layer(batch_size, a_max_sent_length, 
-                      embedding, embedding_overlap, numpy_randg, 
-                      x_a, x_a_overlap,
-                      a_filter_widths, 100, 1, 1)
-  q_logistic_n_in = n_conv_kern * len(q_filter_widths) * q_k_max
-  a_logistic_n_in = n_conv_kern * len(a_filter_widths) * a_k_max
-  ## calculate similarity as sim = q.T * M * a
-  # output is (conv_out_a, conv_out_q, similarity)
-  pairwise_layer = nn_layers.PairwiseNoFeatsLayer(q_in=q_logistic_n_in,
-                                                a_in=a_logistic_n_in)
-  pairwise_layer.set_input((nnet_q.output, nnet_a.output))
-  ## hidden layer
-  # input is (conv_out_a, conv_out_q, similarity)
-  n_in = q_logistic_n_in + a_logistic_n_in + 1
-  hidden_layer = nn_layers.LinearLayer(numpy_randg, n_in=n_in, n_out=n_in, activation=T.tanh)
-  hidden_layer.set_input(pairwise_layer.output)
-  classifier = nn_layers.LogisticRegression(n_in=n_in, n_out=n_outs)
-  classifier.set_input(hidden_layer.output)
-  nnet = nn_layers.FeedForwardNet(layers=[nnet_q, nnet_a, pairwise_layer, hidden_layer, classifier],
-                                        name="nnet")
-  return nnet
 
 def main():
   # ZEROUT_DUMMY_WORD = False
@@ -219,10 +117,146 @@ def main():
   print 'learning_rate', learning_rate
   print 'max_norm', max_norm
 
-  train_nnet = deep_qa_net(batch_size, vocab_emb, vocab_emb_overlap, 
-                           q_max_sent_size, a_max_sent_size, numpy_rng,
-                           x, x_q, x_q_overlap, x_a, x_a_overlap, y,
-                           100, 1, 1, 1, 0.5)
+  ## 1st conv layer.
+  ndim = vocab_emb.shape[1] + vocab_emb_overlap.shape[1]
+
+  ### Nonlinearity type
+  # activation = nn_layers.relu_f
+  activation = T.tanh
+
+  dropout_rate = 0.5
+  nkernels = 100
+  q_k_max = 1
+  a_k_max = 1
+
+  # filter_widths = [3,4,5]
+  q_filter_widths = [5]
+  a_filter_widths = [5]
+
+  ###### QUESTION ######
+  lookup_table_words = nn_layers.LookupTableFastStatic(W=vocab_emb, pad=max(q_filter_widths)-1)
+  lookup_table_overlap = nn_layers.LookupTableFast(W=vocab_emb_overlap, pad=max(q_filter_widths)-1)
+
+  lookup_table = nn_layers.ParallelLookupTable(layers=[lookup_table_words, lookup_table_overlap])
+
+  num_input_channels = 1
+  input_shape = (batch_size, num_input_channels, q_max_sent_size + 2*(max(q_filter_widths)-1), ndim)
+
+  conv_layers = []
+  for filter_width in q_filter_widths:
+    filter_shape = (nkernels, num_input_channels, filter_width, ndim)
+    conv = nn_layers.Conv2dLayer(rng=numpy_rng, filter_shape=filter_shape, input_shape=input_shape)
+    non_linearity = nn_layers.NonLinearityLayer(b_size=filter_shape[0], activation=activation)
+    pooling = nn_layers.KMaxPoolLayer(k_max=q_k_max)
+    conv2dNonLinearMaxPool = nn_layers.FeedForwardNet(layers=[conv, non_linearity, pooling])
+    conv_layers.append(conv2dNonLinearMaxPool)
+
+  join_layer = nn_layers.ParallelLayer(layers=conv_layers)
+  flatten_layer = nn_layers.FlattenLayer()
+
+  nnet_q = nn_layers.FeedForwardNet(layers=[
+                                  lookup_table,
+                                  join_layer,
+                                  flatten_layer,
+                                  ])
+  nnet_q.set_input((x_q, x_q_overlap))
+  ######
+
+
+  ###### ANSWER ######
+  lookup_table_words = nn_layers.LookupTableFastStatic(W=vocab_emb, pad=max(q_filter_widths)-1)
+  lookup_table_overlap = nn_layers.LookupTableFast(W=vocab_emb_overlap, pad=max(q_filter_widths)-1)
+
+  lookup_table = nn_layers.ParallelLookupTable(layers=[lookup_table_words, lookup_table_overlap])
+
+  # num_input_channels = len(lookup_table.layers)
+  input_shape = (batch_size, num_input_channels, a_max_sent_size + 2*(max(a_filter_widths)-1), ndim)
+  conv_layers = []
+  for filter_width in a_filter_widths:
+    filter_shape = (nkernels, num_input_channels, filter_width, ndim)
+    conv = nn_layers.Conv2dLayer(rng=numpy_rng, filter_shape=filter_shape, input_shape=input_shape)
+    non_linearity = nn_layers.NonLinearityLayer(b_size=filter_shape[0], activation=activation)
+    pooling = nn_layers.KMaxPoolLayer(k_max=a_k_max)
+    conv2dNonLinearMaxPool = nn_layers.FeedForwardNet(layers=[conv, non_linearity, pooling])
+    conv_layers.append(conv2dNonLinearMaxPool)
+
+  join_layer = nn_layers.ParallelLayer(layers=conv_layers)
+  flatten_layer = nn_layers.FlattenLayer()
+
+  nnet_a = nn_layers.FeedForwardNet(layers=[
+                                  lookup_table,
+                                  join_layer,
+                                  flatten_layer,
+                                  ])
+  nnet_a.set_input((x_a, x_a_overlap))
+  #######
+  # print 'nnet_q.output', nnet_q.output.ndim
+
+  q_logistic_n_in = nkernels * len(q_filter_widths) * q_k_max
+  a_logistic_n_in = nkernels * len(a_filter_widths) * a_k_max
+
+  # dropout_q = nn_layers.FastDropoutLayer(rng=numpy_rng)
+  # dropout_a = nn_layers.FastDropoutLayer(rng=numpy_rng)
+  # dropout_q.set_input(nnet_q.output)
+  # dropout_a.set_input(nnet_a.output)
+
+  # feats_nout = 10
+  # x_hidden_layer = nn_layers.LinearLayer(numpy_rng, n_in=feats_ndim, n_out=feats_nout, activation=activation)
+  # x_hidden_layer.set_input(x)
+
+  # feats_nout = feats_ndim
+
+  ### Dropout
+  # classifier = nn_layers.PairwiseLogisticWithFeatsRegression(q_in=logistic_n_in,
+  #                                                   a_in=logistic_n_in,
+  #                                                   n_in=feats_nout,
+  #                                                   n_out=n_outs)
+  # # classifier.set_input((dropout_q.output, dropout_a.output, x_hidden_layer.output))
+  # classifier.set_input((dropout_q.output, dropout_a.output, x))
+
+  # # train_nnet = nn_layers.FeedForwardNet(layers=[nnet_q, nnet_a, x_hidden_layer, dropout_q, dropout_a, classifier],
+  # train_nnet = nn_layers.FeedForwardNet(layers=[nnet_q, nnet_a, dropout_q, dropout_a, classifier],
+  #                                       name="Training nnet")
+
+  # test_classifier = nn_layers.PairwiseLogisticWithFeatsRegression(q_in=logistic_n_in,
+  #                                                         a_in=logistic_n_in,
+  #                                                         n_in=feats_nout,
+  #                                                         n_out=n_outs,
+  #                                                         W=classifier.W,
+  #                                                         W_feats=classifier.W_feats,
+  #                                                         b=classifier.b)
+  # # test_classifier.set_input((nnet_q.output, nnet_a.output, x_hidden_layer.output))
+  # test_classifier.set_input((nnet_q.output, nnet_a.output, x))
+  # # test_nnet = nn_layers.FeedForwardNet(layers=[nnet_q, nnet_a, x_hidden_layer, test_classifier],
+  # test_nnet = nn_layers.FeedForwardNet(layers=[nnet_q, nnet_a, test_classifier],
+  #                                       name="Test nnet")
+  #########
+
+  # pairwise_layer = nn_layers.PairwiseMultiOnlySimWithFeatsLayer(q_in=q_logistic_n_in,
+
+  pairwise_layer = nn_layers.PairwiseNoFeatsLayer(q_in=q_logistic_n_in,
+  # pairwise_layer = nn_layers.PairwiseWithFeatsLayer(q_in=q_logistic_n_in,
+  # pairwise_layer = nn_layers.PairwiseOnlySimWithFeatsLayer(q_in=q_logistic_n_in,
+                                                a_in=a_logistic_n_in)
+  pairwise_layer.set_input((nnet_q.output, nnet_a.output))
+
+  # n_in = q_logistic_n_in + a_logistic_n_in + feats_ndim + a_logistic_n_in
+  # n_in = q_logistic_n_in + a_logistic_n_in + feats_ndim + 50
+  # n_in = q_logistic_n_in + a_logistic_n_in + feats_ndim + 1
+  n_in = q_logistic_n_in + a_logistic_n_in + 1
+  # n_in = feats_ndim + 1
+  # n_in = feats_ndim + 50
+
+  hidden_layer = nn_layers.LinearLayer(numpy_rng, n_in=n_in, n_out=n_in, activation=activation)
+  hidden_layer.set_input(pairwise_layer.output)
+
+  classifier = nn_layers.LogisticRegression(n_in=n_in, n_out=n_outs)
+  classifier.set_input(hidden_layer.output)
+
+
+  train_nnet = nn_layers.FeedForwardNet(layers=[nnet_q, nnet_a, pairwise_layer, hidden_layer, classifier],
+  # train_nnet = nn_layers.FeedForwardNet(layers=[nnet_q, nnet_a, x_hidden_layer, classifier],
+                                        name="Training nnet")
   test_nnet = train_nnet
   #######
 

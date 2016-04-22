@@ -95,7 +95,9 @@ class FeedForwardNet(Layer):
 
 
 class ParallelLayer(FeedForwardNet):
-
+  '''consume the input with multiple parallel layers, 
+     and concatenate the output into one
+  '''
   def output_func(self, input):
     layers_out = []
     for layer in self.layers:
