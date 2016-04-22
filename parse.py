@@ -10,7 +10,7 @@ from utils import load_bin_vec
 
 from alphabet import Alphabet
 import ptvsd
-#ptvsd.enable_attach(secret='secret')
+#ptvsd.enable_attach(secret='secret', address = ('0.0.0.0',9999))
 #ptvsd.wait_for_attach()
 
 UNKNOWN_WORD_IDX = 0
@@ -21,22 +21,22 @@ def load_xml(fname):
   '''
   print('loading file {}'.format(fname))
   lines = open(fname).readlines()
-  unique_questions, qids, questions, answers, labels = [], [], [], [], []
+  qids, questions, answers, labels = [], [], [], []
   num_skipped = 0
   prev = ''
-  qid2num_answers = {}
+  question2qid = {}
+  curr_qid = 0
   for i, line in enumerate(lines):
     line = line.strip()
-
-    qid_match = re.match('<QApairs id=\'(.*)\'>', line)
-
-    if qid_match:
-      qid = qid_match.group(1)
-      qid2num_answers[qid] = 0
-
     if prev and prev.startswith('<question>'):
-      question = line.lower().split('\t')
-      unique_questions.append(question)
+      question = line.lower()
+      if not question in question2qid:
+        qid = curr_qid
+        question2qid[question] = curr_qid
+        curr_qid += 1
+      else:
+        qid = question2qid[question]
+      question = question.split('\t')
 
     label = re.match('^<(positive|negative)>', prev)
     if label:
@@ -45,17 +45,17 @@ def load_xml(fname):
       answer = line.lower().split('\t')
       #if len(answer) > 60:
       if len(answer) > 70:
-        num_skipped += 1
-        continue
+        #num_skipped += 1
+        #continue
+        answer = answer[:70]
       labels.append(label)
       answers.append(answer)
       questions.append(question)
       qids.append(qid)
-      qid2num_answers[qid] += 1
     prev = line
   # print sorted(qid2num_answers.items(), key=lambda x: float(x[0]))
-  print 'num_skipped: ', num_skipped
-  return unique_questions, qids, questions, answers, labels
+  # print 'num_skipped: ', num_skipped
+  return question2qid.keys(), qids, questions, answers, labels
 
 def passage2list(psg):
   '''
@@ -75,7 +75,7 @@ def passage2list(psg):
         list.append(psg[wordStart:pos])
         lastIsPunc = False
         isFirstChar = True
-    elif (c in string.punctuation):
+    elif (c in "!\"#$%&'()*+,./:;<=>?@[\]^`{|}~"):
       if isFirstChar:
         wordStart = pos
       elif (not isFirstChar) and (not lastIsPunc):
@@ -106,9 +106,9 @@ def load_tsv(fname):
   qids, questions, answers, labels = [], [], [], []
   curr_qid = 0
   num_skipped = 0
-  questions2qid = {}
+  question2qid = {}
   for i, line in enumerate(lines):
-    line = line.strip()
+    line = line.strip().lower()
     # Query   Url     PassageID       Passage Rating1 Rating2
     qupprr=line.split('\t')
     if len(qupprr) != 6:
@@ -116,21 +116,21 @@ def load_tsv(fname):
       print('line:\n', line)
       exit(1)
     q = qupprr[0]
-    if not q in questions2qid:
-      questions2qid[q] = curr_qid
+    if not q in question2qid:
+      question2qid[q] = curr_qid
       qid = curr_qid
       curr_qid += 1
     else:
-      qid = questions2qid[q]
+      qid = question2qid[q]
     question = passage2list(q)      ### should we convert to lower case?
     answer = passage2list(qupprr[3])
-    if len(answers) > 70:
+    if len(answer) > 70:
       answer = answer[:70]
     r2 = qupprr[5].lower()
     if r2 == 'perfect':
       label = 1.0
     elif r2 == 'good':
-      lable = 0.7
+      label = 1.0
     else:
       label = 0.0
     labels.append(label)
@@ -138,7 +138,7 @@ def load_tsv(fname):
     questions.append(question)
     qids.append(qid)
     prev = line
-  return questions2qid.keys(), qids, questions, answers, labels
+  return question2qid.keys(), qids, questions, answers, labels
 
 def load_data(fname):
   basename = os.path.basename(fname)
@@ -307,6 +307,7 @@ def dump_embedding(outdir, embeddingfile, alphabet):
   ndim = len(word2vec[word2vec.keys()[0]])
   print 'embedding dim: ', ndim
   random_words_count = 0
+  np.random.seed(321)
   vocab_emb = np.zeros((len(alphabet) + 1, ndim))
   for word, idx in alphabet.iteritems():
     word_vec = word2vec.get(word, None)
@@ -320,6 +321,9 @@ def dump_embedding(outdir, embeddingfile, alphabet):
   outfile = os.path.join(outdir, 'emb_{}.npy'.format(os.path.basename(embeddingfile)))
   print 'saving embedding file', outfile
   np.save(outfile, vocab_emb)
+
+def sample(list, idx):
+  return [list[i] for i in idx]
 
 if __name__ == '__main__':
   '''
@@ -336,8 +340,8 @@ if __name__ == '__main__':
   # parse command line arguments
   outdir = sys.argv[1]
   train = sys.argv[2]
-  dev = sys.argv[3]
-  test = "" if len(sys.argv) < 5 else sys.argv[4]
+  test = sys.argv[3]
+  dev = "" if len(sys.argv) < 5 else sys.argv[4]
   print("using:\n"
       "    outputdir={}\n"
       "    train={}\n"
@@ -388,20 +392,20 @@ if __name__ == '__main__':
   test_unique_qs, test_qids, test_questions, test_answers, test_labels = load_data(test)
   if (dev == ""):
     # get 1/6 of train data and put it in dev
-    train_size = train_qids.shape[0]
-    sample_idx = numpy.arange(train_size)
-    numpy.random.shuffle(sample_idx)
+    train_size = len(train_qids)
+    sample_idx = np.arange(train_size)
+    np.random.shuffle(sample_idx)
     dev_size = train_size / 6;
     dev_samples = sample_idx[:dev_size]
     train_samples = sample_idx[dev_size:]
-    dev_qids = train_qids[dev_samples]
-    train_qids = train_qids[train_samples]
-    dev_questions = train_questions[dev_samples]
-    train_questions = train_questions[train_samples]
-    dev_answers = train_answers[dev_samples]
-    train_answers = train_answers[train_samples]
-    dev_labels = train_labels[dev_samples]
-    train_labels = train_labels[train_samples]
+    dev_qids = sample(train_qids,dev_samples)
+    train_qids = sample(train_qids,train_samples)
+    dev_questions = sample(train_questions,dev_samples)
+    train_questions = sample(train_questions,train_samples)
+    dev_answers = sample(train_answers,dev_samples)
+    train_answers = sample(train_answers,train_samples)
+    dev_labels = sample(train_labels,dev_samples)
+    train_labels = sample(train_labels,train_samples)
   else:
     dev_unique_qs, dev_qids, dev_questions, dev_answers, dev_labels = load_data(dev)
   convert_dataset(qids = train_qids, 

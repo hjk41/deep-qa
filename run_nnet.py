@@ -27,23 +27,17 @@ import ptvsd
 # theano.config.exception_verbosity = 'high'
 
 n_epochs = 25
-batch_size = 500
+batch_size = 50
 n_dev_batch = 20
 n_iter_per_val = 100
 
 def main():
   # ZEROUT_DUMMY_WORD = False
   ZEROUT_DUMMY_WORD = True
-
+  numpy.random.seed(100)
   ## Load data
   # mode = 'TRAIN-ALL'
-  mode = 'train'
-  if len(sys.argv) > 1:
-    mode = sys.argv[1]
-    if not mode in ['TRAIN', 'TRAIN-ALL', 'HB06_TRAIN']:
-      print "ERROR! The two possible training settings are: ['TRAIN', 'TRAIN-ALL']"
-      sys.exit(1)
-
+  mode = sys.argv[1]
   print "Running training in the {} setting".format(mode)
 
   data_dir = mode
@@ -71,6 +65,8 @@ def main():
   q_overlap_dev = numpy.load(os.path.join(data_dir, 'dev.q_overlap_indices.npy')).astype(numpy.float32)[sample_idx]
   a_overlap_dev = numpy.load(os.path.join(data_dir, 'dev.a_overlap_indices.npy')).astype(numpy.float32)[sample_idx]
   y_dev = numpy.load(os.path.join(data_dir, 'dev.labels.npy')).astype(numpy.float32)[sample_idx]
+  #for i in range(y_dev.shape[0]):
+  #  y_dev[i] = 1.0 if y_dev[i] > 0 else 0.0
   qids_dev = numpy.load(os.path.join(data_dir, 'dev.qids.npy')).astype(numpy.float32)[sample_idx]
 
   print 'y_train', numpy.unique(y_train, return_counts=True)
