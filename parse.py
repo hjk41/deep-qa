@@ -4,12 +4,13 @@ import numpy as np
 import cPickle
 import subprocess
 import sys
+import string
 from collections import defaultdict
 from utils import load_bin_vec
 
 from alphabet import Alphabet
 import ptvsd
-#ptvsd.enable_attach(secret='secret', address=('0.0.0.0', 9999))
+#ptvsd.enable_attach(secret='secret')
 #ptvsd.wait_for_attach()
 
 UNKNOWN_WORD_IDX = 0
@@ -61,16 +62,48 @@ def passage2list(psg):
   split the passage into a list of words
   punctuations will be split from words if there is no whitespace between a puctuation and a word
   '''
-  psg = ''
-  ret = psg.split(' ')
-  
+  list = []
+  pos = 0
+  wordStart = pos
+  isFirstChar = True
+  lastIsPunc = False
+  n = len(psg)
+  while (pos < n):
+    c = psg[pos]
+    if c == ' ':
+      if (not isFirstChar):
+        list.append(psg[wordStart:pos])
+        lastIsPunc = False
+        isFirstChar = True
+    elif (c in string.punctuation):
+      if isFirstChar:
+        wordStart = pos
+      elif (not isFirstChar) and (not lastIsPunc):
+        # punctuation following a word, seperate it
+        list.append(psg[wordStart:pos])
+        wordStart = pos
+      lastIsPunc = True
+      isFirstChar = False
+    else:
+      if isFirstChar:
+        wordStart = pos
+      elif (not isFirstChar) and lastIsPunc:
+				# word following a punctuation, seperate it
+        list.append(psg[wordStart:pos])
+        wordStart = pos
+      lastIsPunc = False
+      isFirstChar = False
+    pos += 1
+  if not isFirstChar:
+    list.append(psg[wordStart:pos])
+  return list    
 
 def load_tsv(fname):
   lines = open(fname).readlines()
   # skip tsv header
   #header = lines.pop(0)
   #print 'fields: ', header
-  unique_questions, qids, questions, answers, labels = [], [], [], [], []
+  qids, questions, answers, labels = [], [], [], []
   curr_qid = 0
   num_skipped = 0
   questions2qid = {}
@@ -83,38 +116,34 @@ def load_tsv(fname):
       print('line:\n', line)
       exit(1)
     q = qupprr[0]
-    question = q.split(' ')
     if not q in questions2qid:
       questions2qid[q] = curr_qid
       qid = curr_qid
       curr_qid += 1
     else:
       qid = questions2qid[q]
-    
-    
+    question = passage2list(q)      ### should we convert to lower case?
+    answer = passage2list(qupprr[3])
+    if len(answers) > 70:
+      answer = answer[:70]
     r2 = qupprr[5].lower()
-    if (r2 == 'good' or r2 == 'perfect'):
-      label = 1
+    if r2 == 'perfect':
+      label = 1.0
+    elif r2 == 'good':
+      lable = 0.7
     else:
-      lable = 0
-    answer = qupprr[3].lower().split()
-    if len(answer) > 70:
-      num_skipped += 1
-      continue
+      label = 0.0
     labels.append(label)
     answers.append(answer)
     questions.append(question)
     qids.append(qid)
-    qid2num_answers[qid] += 1
     prev = line
-  # print sorted(qid2num_answers.items(), key=lambda x: float(x[0]))
-  print 'num_skipped', num_skipped
-  return qids, questions, answers, labels
+  return questions2qid.keys(), qids, questions, answers, labels
 
 def load_data(fname):
   basename = os.path.basename(fname)
   name, ext = os.path.splitext(basename)
-  if (ext == 'tsv'):
+  if (ext == '.tsv'):
     return load_tsv(fname)
   else:
     return load_xml(fname)  
@@ -137,8 +166,14 @@ def compute_overlap_features(questions, answers, word2df=None, stoplist=None):
     df_overlap = 0.0
     for w in word_overlap:        ### should we count the word frequency?
       df_overlap += word2df[w]
+    #total_dfs = 0.0
+    #for w in q_set:
+    #  total_dfs += word2df[w]
+    #for w in a_set:
+    #  total_dfs += word2df[w]
     # df_overlap = total_overlap_IDF / (words_in_q + words_in_a)
     df_overlap /= (len(q_set) + len(a_set))
+    #df_overlap /= total_dfs
 
     feats_overlap.append(np.array([
                          overlap,
@@ -184,6 +219,15 @@ def compute_overlap_idx(questions, answers, stoplist, q_max_sent_length, a_max_s
 
   return q_indices, a_indices
 
+#def compute_dfs(docs):
+#  word2df = defaultdict(float)
+#  for doc in docs:
+#    for w in set(doc):
+#      word2df[w] += 1.0
+#  num_docs = len(docs)
+#  for w, value in word2df.iteritems():
+#    word2df[w] /= np.math.log(num_docs / value)   # why /=? shouldn't it be =?
+#  return word2df
 
 def compute_dfs(docs):
   word2df = defaultdict(float)
@@ -192,9 +236,8 @@ def compute_dfs(docs):
       word2df[w] += 1.0
   num_docs = len(docs)
   for w, value in word2df.iteritems():
-    word2df[w] /= np.math.log(num_docs / value)   # why /=? shouldn't it be =?
+    word2df[w] = np.math.log(num_docs / value)   # why /=? shouldn't it be =?
   return word2df
-
 
 def add_to_vocab(data, alphabet):
   for sentence in data:
@@ -311,7 +354,8 @@ if __name__ == '__main__':
   #stoplist.update(punct)
 
   # merge inputs to compute word frequencies
-  all_fname = "/tmp/trec-merged.txt"
+  _, ext = os.path.splitext(os.path.basename(train))
+  all_fname = "/tmp/trec-merged" + ext
   files = ' '.join([train, dev, test])
   subprocess.call("/bin/cat {} > {}".format(files, all_fname), shell=True)
   unique_questions, qids, questions, answers, labels = load_data(all_fname)
