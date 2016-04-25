@@ -5,12 +5,13 @@ import cPickle
 import subprocess
 import sys
 import string
+import time
 from collections import defaultdict
 from utils import load_bin_vec
 
 from alphabet import Alphabet
 import ptvsd
-#ptvsd.enable_attach(secret='secret', address = ('0.0.0.0',9999))
+#ptvsd.enable_attach(secret='secret')
 #ptvsd.wait_for_attach()
 
 UNKNOWN_WORD_IDX = 0
@@ -99,7 +100,7 @@ def passage2list(psg):
   return list    
 
 def load_tsv(fname):
-  lines = open(fname).readlines()
+  tsvfile = open(fname,'r')
   # skip tsv header
   #header = lines.pop(0)
   #print 'fields: ', header
@@ -107,7 +108,15 @@ def load_tsv(fname):
   curr_qid = 0
   num_skipped = 0
   question2qid = {}
-  for i, line in enumerate(lines):
+  start_time = time.time()
+  total_bytes = 0
+  for i, line in enumerate(tsvfile):
+    total_bytes += len(line)
+    if ((i + 1) % 1000 == 0):
+      curr_time = time.time()
+      sys.stdout.write('read {} lines, {}MB at {}MB/s\t\t\t\r'.format(i+1, total_bytes/1024/1024, 
+            total_bytes/1024/1024/(curr_time - start_time)))
+      sys.stdout.flush()
     line = line.strip().lower()
     # Query   Url     PassageID       Passage Rating1 Rating2
     qupprr=line.split('\t')
@@ -141,6 +150,7 @@ def load_tsv(fname):
   return question2qid.keys(), qids, questions, answers, labels
 
 def load_data(fname):
+  print('loading file {}'.format(fname))
   basename = os.path.basename(fname)
   name, ext = os.path.splitext(basename)
   if (ext == '.tsv'):
