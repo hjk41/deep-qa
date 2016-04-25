@@ -19,7 +19,7 @@ import warnings
 warnings.filterwarnings("ignore")  # TODO remove
 
 import ptvsd
-#ptvsd.enable_attach(secret='secret')
+ptvsd.enable_attach(secret='secret')
 #ptvsd.wait_for_attach()
 
 ### THEANO DEBUG FLAGS
@@ -82,8 +82,7 @@ def deep_qa_net(batch_size,
     q_max_sent_length,
     a_max_sent_length,
     numpy_randg,              # numpy random number generator
-    x,                        # input symbols
-    x_q,
+    x_q,                      # input symbols
     x_q_overlap,
     x_a,
     x_a_overlap,
@@ -133,126 +132,117 @@ def deep_qa_net(batch_size,
                                         name="nnet")
   return nnet
 
-def main():
-  # ZEROUT_DUMMY_WORD = False
+def main(argv):
+  if (len(argv) != 3):
+    print('usage: run_nnet.py inputdir outputdir')
+    exit(1)
+  input_dir = argv[1]
+  output_dir = argv[2]
+
+  # set hyper parameters
   ZEROUT_DUMMY_WORD = True
+  n_outs = 2
+  learning_rate = 0.1
+  max_norm = 0
+  print 'batch_size', batch_size
+  print 'n_epochs', n_epochs
+  print 'learning_rate', learning_rate
+  print 'max_norm', max_norm
+  
+  # init random seed
   numpy.random.seed(100)
+  numpy_rng = numpy.random.RandomState(123)
+
   ## Load data
-  # mode = 'TRAIN-ALL'
-  mode = sys.argv[1]
-  print "Running training in the {} setting".format(mode)
+  print "Running training with the data in {}".format(input_dir)
 
-  data_dir = mode
+  q_train = numpy.load(os.path.join(input_dir, 'train.questions.npy'))
+  a_train = numpy.load(os.path.join(input_dir, 'train.answers.npy'))
+  q_overlap_train = numpy.load(os.path.join(input_dir, 'train.q_overlap_indices.npy'))
+  a_overlap_train = numpy.load(os.path.join(input_dir, 'train.a_overlap_indices.npy'))
+  y_train = numpy.load(os.path.join(input_dir, 'train.labels.npy')).astype(numpy.uint16)
 
-  if mode in ['TRAIN-ALL']:
-    q_train = numpy.load(os.path.join(data_dir, 'train-all.questions.npy')).astype(numpy.float32)
-    a_train = numpy.load(os.path.join(data_dir, 'train-all.answers.npy')).astype(numpy.float32)
-    q_overlap_train = numpy.load(os.path.join(data_dir, 'train-all.q_overlap_indices.npy')).astype(numpy.float32)
-    a_overlap_train = numpy.load(os.path.join(data_dir, 'train-all.a_overlap_indices.npy')).astype(numpy.float32)
-    y_train = numpy.load(os.path.join(data_dir, 'train-all.labels.npy')).astype(numpy.float32)
-  else:
-    q_train = numpy.load(os.path.join(data_dir, 'train.questions.npy')).astype(numpy.float32)
-    a_train = numpy.load(os.path.join(data_dir, 'train.answers.npy')).astype(numpy.float32)
-    q_overlap_train = numpy.load(os.path.join(data_dir, 'train.q_overlap_indices.npy')).astype(numpy.float32)
-    a_overlap_train = numpy.load(os.path.join(data_dir, 'train.a_overlap_indices.npy')).astype(numpy.float32)
-    y_train = numpy.load(os.path.join(data_dir, 'train.labels.npy')).astype(numpy.float32)
-
-  q_dev = numpy.load(os.path.join(data_dir, 'dev.questions.npy')).astype(numpy.float32)
+  q_dev = numpy.load(os.path.join(input_dir, 'dev.questions.npy'))
   dev_size = q_dev.shape[0]
   sample_idx = numpy.arange(dev_size)
   numpy.random.shuffle(sample_idx)
-  sample_idx = sample_idx[:n_dev_batch * batch_size]
+  sample_idx = sample_idx[:min(n_dev_batch * batch_size, dev_size)]
   q_dev = q_dev[sample_idx]
-  a_dev = numpy.load(os.path.join(data_dir, 'dev.answers.npy')).astype(numpy.float32)[sample_idx]
-  q_overlap_dev = numpy.load(os.path.join(data_dir, 'dev.q_overlap_indices.npy')).astype(numpy.float32)[sample_idx]
-  a_overlap_dev = numpy.load(os.path.join(data_dir, 'dev.a_overlap_indices.npy')).astype(numpy.float32)[sample_idx]
-  y_dev = numpy.load(os.path.join(data_dir, 'dev.labels.npy')).astype(numpy.float32)[sample_idx]
+  a_dev = numpy.load(os.path.join(input_dir, 'dev.answers.npy'))[sample_idx]
+  q_overlap_dev = numpy.load(os.path.join(input_dir, 'dev.q_overlap_indices.npy'))[sample_idx]
+  a_overlap_dev = numpy.load(os.path.join(input_dir, 'dev.a_overlap_indices.npy'))[sample_idx]
+  y_dev = numpy.load(os.path.join(input_dir, 'dev.labels.npy'))[sample_idx].astype(numpy.uint16)
   #for i in range(y_dev.shape[0]):
   #  y_dev[i] = 1.0 if y_dev[i] > 0 else 0.0
-  qids_dev = numpy.load(os.path.join(data_dir, 'dev.qids.npy')).astype(numpy.float32)[sample_idx]
+  qids_dev = numpy.load(os.path.join(input_dir, 'dev.qids.npy'))[sample_idx]
+
+  q_test = numpy.load(os.path.join(input_dir, 'test.questions.npy'))
+  a_test = numpy.load(os.path.join(input_dir, 'test.answers.npy'))
+  q_overlap_test = numpy.load(os.path.join(input_dir, 'test.q_overlap_indices.npy'))
+  a_overlap_test = numpy.load(os.path.join(input_dir, 'test.a_overlap_indices.npy'))
+  y_test = numpy.load(os.path.join(input_dir, 'test.labels.npy')).astype(numpy.uint16)
+  qids_test = numpy.load(os.path.join(input_dir, 'test.qids.npy'))
 
   print 'y_train', numpy.unique(y_train, return_counts=True)
   print 'y_dev', numpy.unique(y_dev, return_counts=True)
-
   print 'q_train', q_train.shape
   print 'q_dev', q_dev.shape
-
   print 'a_train', a_train.shape
   print 'a_dev', a_dev.shape
 
-  numpy_rng = numpy.random.RandomState(123)
   q_max_sent_size = q_train.shape[1]
   a_max_sent_size = a_train.shape[1]
-  print 'max', numpy.max(a_train)
-  print 'min', numpy.min(a_train)
+  print 'max_sent_size', numpy.max(a_train)
+  print 'min_sent_size', numpy.min(a_train)
 
+  # number of dimmension for overlapping feature (the 0,1,2 features)
   ndim = 5
-  print "Generating random vocabulary for word overlap indicator features with dim:", ndim
+  print "Generating random vocabulary for word overlap indicator features with dim", ndim
   dummy_word_id = numpy.max(a_overlap_train)
-  print "Gaussian"
   vocab_emb_overlap = numpy_rng.randn(dummy_word_id+1, ndim) * 0.25
   vocab_emb_overlap[-1] = 0
 
   # Load word2vec embeddings
-  fname = os.path.join(data_dir, 'emb_aquaint+wiki.txt.gz.ndim=50.bin.npy')
-
+  fname = os.path.join(input_dir, 'emb_aquaint+wiki.txt.gz.ndim=50.bin.npy')
   print "Loading word embeddings from", fname
   vocab_emb = numpy.load(fname)
   ndim = vocab_emb.shape[1]
   dummpy_word_idx = numpy.max(a_train)
   print "Word embedding matrix size:", vocab_emb.shape
 
-  x = T.fmatrix('x')
   x_q = T.lmatrix('q')
-  x_q_overlap = T.lmatrix('q_overlap')
   x_a = T.lmatrix('a')
-  x_a_overlap = T.lmatrix('a_overlap')
+  x_q_overlap = T.imatrix('q_overlap')
+  x_a_overlap = T.imatrix('a_overlap')
   y = T.ivector('y')
+  batch_x_q = T.lmatrix('batch_x_q')
+  batch_x_a = T.lmatrix('batch_x_a')
+  batch_x_q_overlap = T.imatrix('batch_x_q_overlap')
+  batch_x_a_overlap = T.imatrix('batch_x_a_overlap')
+  batch_y = T.ivector('batch_y')
 
-  #######
-  n_outs = 2
-  learning_rate = 0.1
-  max_norm = 0
-
-  print 'batch_size', batch_size
-  print 'n_epochs', n_epochs
-  print 'learning_rate', learning_rate
-  print 'max_norm', max_norm
-
+  # build network
   train_nnet = deep_qa_net(batch_size, vocab_emb, vocab_emb_overlap, 
                            q_max_sent_size, a_max_sent_size, numpy_rng,
-                           x, x_q, x_q_overlap, x_a, x_a_overlap, y,
+                           x_q, x_q_overlap, x_a, x_a_overlap, y,
                            100, 1, 1, 1, 0.5)
   test_nnet = train_nnet
-  #######
-
   print train_nnet
-
   params = train_nnet.params
-
-  ts = datetime.now().strftime('%Y-%m-%d-%H.%M.%S')
-  nnet_outdir = 'exp.out/ndim={};batch={};max_norm={};learning_rate={};{}'.format(ndim, batch_size, max_norm, learning_rate, ts)
-  if not os.path.exists(nnet_outdir):
-    os.makedirs(nnet_outdir)
-  nnet_fname = os.path.join(nnet_outdir, 'nnet.dat')
-  print "Saving to", nnet_fname
-  cPickle.dump([train_nnet, test_nnet], open(nnet_fname, 'wb'), protocol=cPickle.HIGHEST_PROTOCOL)
-
   total_params = sum([numpy.prod(param.shape.eval()) for param in params])
   print 'Total params number:', total_params
 
-  cost = train_nnet.layers[-1].training_cost(y)
-  # y_train_counts = numpy.unique(y_train, return_counts=True)[1].astype(numpy.float32)
-  # weights_data = numpy.sum(y_train_counts) / y_train_counts
-  # weights_data_norm = numpy.linalg.norm(weights_data)
-  # weights_data /= weights_data_norm
-  # print 'weights_data', weights_data
-  # weights = theano.shared(weights_data, borrow=True)
-  # cost = train_nnet.layers[-1].training_cost_weighted(y, weights=weights)
+  # prepare output dir
+  ts = datetime.now().strftime('%Y-%m-%d-%H.%M.%S')
+  if not os.path.exists(output_dir):
+    os.makedirs(output_dir)
+  nnet_fname = os.path.join(output_dir, 'nnet.dat')
+  print "Saving to", nnet_fname
+  cPickle.dump([train_nnet, test_nnet], open(nnet_fname, 'wb'), protocol=cPickle.HIGHEST_PROTOCOL)
 
+  cost = train_nnet.layers[-1].training_cost(y)
   predictions = test_nnet.layers[-1].y_pred
   predictions_prob = test_nnet.layers[-1].p_y_given_x[:,-1]
-
   ### L2 regularization
   # L2_word_emb = 1e-4
   # L2_conv1d = 3e-5
@@ -271,15 +261,6 @@ def main():
   #     L2_reg = L2_softmax
   #   print w.name, L2_reg
   #   cost += T.sum(w**2) * L2_reg
-
-  # batch_x = T.dmatrix('batch_x')
-  batch_x_q = T.lmatrix('batch_x_q')
-  batch_x_a = T.lmatrix('batch_x_a')
-  batch_x_q_overlap = T.lmatrix('batch_x_q_overlap')
-  batch_x_a_overlap = T.lmatrix('batch_x_a_overlap')
-  batch_y = T.ivector('batch_y')
-
-  # updates = sgd_trainer.get_adagrad_updates(cost, params, learning_rate=learning_rate, max_norm=max_norm, _eps=1e-6)
   updates = sgd_trainer.get_adadelta_updates(cost, params, rho=0.95, eps=1e-6, max_norm=max_norm, word_vec_name='W_emb')
 
   inputs_pred = [batch_x_q,
@@ -314,18 +295,15 @@ def main():
   train_fn = theano.function(inputs=inputs_train,
                              outputs=cost,
                              updates=updates,
-                             givens=givens_train,
-                             allow_input_downcast=True)
+                             givens=givens_train)
 
   pred_fn = theano.function(inputs=inputs_pred,
                             outputs=predictions,
-                            givens=givens_pred,
-                             allow_input_downcast=True)
+                            givens=givens_pred)
 
   pred_prob_fn = theano.function(inputs=inputs_pred,
                             outputs=predictions_prob,
-                            givens=givens_pred,
-                             allow_input_downcast=True)
+                            givens=givens_pred)
 
   def predict_batch(batch_iterator):
     preds = numpy.hstack([pred_fn(batch_x_q, batch_x_a, batch_x_q_overlap, batch_x_a_overlap) for batch_x_q, batch_x_a, batch_x_q_overlap, batch_x_a_overlap, _ in batch_iterator])
@@ -406,12 +384,6 @@ def main():
       epoch += 1
       no_best_dev_update += 1
 
-  q_test = numpy.load(os.path.join(data_dir, 'test.questions.npy')).astype(numpy.float32)
-  a_test = numpy.load(os.path.join(data_dir, 'test.answers.npy')).astype(numpy.float32)
-  q_overlap_test = numpy.load(os.path.join(data_dir, 'test.q_overlap_indices.npy')).astype(numpy.float32)
-  a_overlap_test = numpy.load(os.path.join(data_dir, 'test.a_overlap_indices.npy')).astype(numpy.float32)
-  y_test = numpy.load(os.path.join(data_dir, 'test.labels.npy')).astype(numpy.float32)
-  qids_test = numpy.load(os.path.join(data_dir, 'test.qids.npy')).astype(numpy.float32)
   test_set_iterator = sgd_trainer.MiniBatchIteratorConstantBatchSize(numpy_rng, [q_test, a_test, q_overlap_test, a_overlap_test, y_test], batch_size=batch_size, randomize=False)
   labels = sorted(numpy.unique(y_test))
   print 'labels', labels
@@ -425,8 +397,8 @@ def main():
 
   y_pred_test = predict_prob_batch(test_set_iterator)
   test_acc = map_score(qids_test, y_test, y_pred_test) * 100
-  fname = os.path.join(nnet_outdir, 'best_dev_params.epoch={:02d};batch={:05d};dev_acc={:.2f}.dat'.format(epoch, i, best_dev_acc))
-  numpy.savetxt(os.path.join(nnet_outdir, 'test.epoch={:02d};batch={:05d};dev_acc={:.2f}.predictions.npy'.format(epoch, i, best_dev_acc)), y_pred)
+  fname = os.path.join(output_dir, 'best_dev_params.epoch={:02d};batch={:05d};dev_acc={:.2f}.dat'.format(epoch, i, best_dev_acc))
+  numpy.savetxt(os.path.join(output_dir, 'test.epoch={:02d};batch={:05d};dev_acc={:.2f}.predictions.npy'.format(epoch, i, best_dev_acc)), y_pred)
   cPickle.dump(best_params, open(fname, 'wb'), protocol=cPickle.HIGHEST_PROTOCOL)
 
 
@@ -440,17 +412,17 @@ def main():
   df_submission['rank'] = 0
   df_submission['sim'] = y_pred_test
   df_submission['run_id'] = 'nnet'
-  df_submission.to_csv(os.path.join(nnet_outdir, 'submission.txt'), header=False, index=False, sep=' ')
+  df_submission.to_csv(os.path.join(output_dir, 'submission.txt'), header=False, index=False, sep=' ')
 
   df_gold = pd.DataFrame(index=numpy.arange(N), columns=['qid', 'iter', 'docno', 'rel'])
   df_gold['qid'] = qids_test
   df_gold['iter'] = 0
   df_gold['docno'] = numpy.arange(N)
   df_gold['rel'] = y_test
-  df_gold.to_csv(os.path.join(nnet_outdir, 'gold.txt'), header=False, index=False, sep=' ')
+  df_gold.to_csv(os.path.join(output_dir, 'gold.txt'), header=False, index=False, sep=' ')
 
-  subprocess.call("/bin/sh run_eval.sh '{}'".format(nnet_outdir), shell=True)
+  subprocess.call("/bin/sh run_eval.sh '{}'".format(output_dir), shell=True)
 
 
 if __name__ == '__main__':
-  main()
+  main(sys.argv)
