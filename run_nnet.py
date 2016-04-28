@@ -19,8 +19,6 @@ import warnings
 warnings.filterwarnings("ignore")  # TODO remove
 
 import ptvsd
-#ptvsd.enable_attach(secret='secret')
-#ptvsd.wait_for_attach()
 
 ### THEANO DEBUG FLAGS
 # theano.config.optimizer = 'fast_compile'
@@ -33,10 +31,12 @@ n_iter_per_val = 100
 n_outs = 2
 learning_rate = 0.1
 max_norm = 0
+n_overlap_dim = 5
+n_overlap_choices = 3
+n_emb_dim = 50
 
 def conv_layer(batch_size,
     max_sent_length,
-    embedding,                # embedding dictionary, from id to vector, static
     embedding_overlap,        # embedding matrix for the overlap feature, will be updated
     numpy_randg,              # numpy random number generator
     x,                        # intput matrix, each sentense is a row, each element is index
@@ -51,12 +51,12 @@ def conv_layer(batch_size,
   Returns a network with input (x, x_overlap)
   '''
   # perform lookup and then pad the matrix so we can later use it in conv
-  lookup_table_words = nn_layers.LookupTableFastStatic(W=embedding, pad=max(filter_widths)-1)
-  lookup_table_overlap = nn_layers.LookupTableFast(W=embedding_overlap, pad=max(filter_widths)-1)
+  padded_embedded = nn_layers.PadLayer(pad=max(filter_widths)-1)
+  overlap_embedded = nn_layers.Embedding1Hot(W=embedding_overlap, pad=max(filter_widths)-1)
   # concatenate the outputs of words and overlap into one
   # now the output dim is embedding+embedding_overlap, currently 50+5
-  lookup_table = nn_layers.ParallelLookupTable(layers=[lookup_table_words, lookup_table_overlap])
-  ndim = embedding.shape[1] + embedding_overlap.shape[1]
+  lookup_table = nn_layers.ParallelLookupTable(layers=[padded_embedded, overlap_embedded])
+  ndim = n_emb_dim + embedding_overlap.shape[1]
   input_shape = (batch_size, n_input_channel, max_sent_length + 2*(max(filter_widths)-1), ndim)
   conv_layers = []
   for filter_width in filter_widths:
@@ -77,7 +77,6 @@ def conv_layer(batch_size,
   return nnet
 
 def deep_qa_net(batch_size,
-    embedding,                # embedding dictionary, from id to vector, static
     embedding_overlap,        # embedding matrix for the overlap feature, will be updated
     q_max_sent_length,
     a_max_sent_length,
@@ -97,7 +96,6 @@ def deep_qa_net(batch_size,
 
   batch_size:               int, size of the batch
   max_sent_length:          int, maximum length of sentense
-  embedding:                numpy array, embedding dictionary, from id to vector, static
   embedding_overlap:        numpy array, embedding matrix for the overlap feature, will be updated
   n_conv_kern               int, number of convolution kernels, currently 100
   n_input_channel           int, number of input channel for convolution, currently 1
@@ -106,12 +104,12 @@ def deep_qa_net(batch_size,
   a_filter_widths = [5]
   ## question conv
   nnet_q = conv_layer(batch_size, q_max_sent_length, 
-                      embedding, embedding_overlap, numpy_randg, 
+                      embedding_overlap, numpy_randg, 
                       x_q, x_q_overlap,
                       q_filter_widths, 100, 1, 1)
   ## answer conv
   nnet_a = conv_layer(batch_size, a_max_sent_length, 
-                      embedding, embedding_overlap, numpy_randg, 
+                      embedding_overlap, numpy_randg, 
                       x_a, x_a_overlap,
                       a_filter_widths, 100, 1, 1)
   q_logistic_n_in = n_conv_kern * len(q_filter_widths) * q_k_max
@@ -132,22 +130,37 @@ def deep_qa_net(batch_size,
                                         name="nnet")
   return nnet
 
+def to1hot(data):
+  b = numpy.zeros((data.shape[0], data.shape[1], n_overlap_choices))
+  for i in range(data.shape[0]):
+      for j in range(data.shape[1]):
+        b[i, j, data[i, j]] = 1.0
+  return b
+
 def load_data(input_dir, prefix):
   q = numpy.load(os.path.join(input_dir, prefix + '.questions.npy'))
   a = numpy.load(os.path.join(input_dir, prefix + '.answers.npy'))
   q_overlap = numpy.load(os.path.join(input_dir, prefix + '.q_overlap_indices.npy'))
   a_overlap = numpy.load(os.path.join(input_dir, prefix + '.a_overlap_indices.npy'))
-  y = numpy.load(os.path.join(input_dir, prefix + '.labels.npy')).astype(numpy.uint16)
+  y = numpy.load(os.path.join(input_dir, prefix + '.labels.npy')).astype(numpy.float32)
   qids = numpy.load(os.path.join(input_dir, prefix + '.qids.npy'))
-  return (q, a, q_overlap, a_overlap, y, qids)
+  return (q, 
+          a, 
+          to1hot(q_overlap).astype(numpy.float32), 
+          to1hot(a_overlap).astype(numpy.float32), 
+          y.astype(numpy.float32), 
+          qids)
 
 def main(argv):
-  if (len(argv) != 4):
-    print('usage: run_nnet.py inputdir outputdir train/test')
+  if (len(argv) < 4):
+    print('usage: run_nnet.py inputdir outputdir train/test [debug]')
     exit(1)
   input_dir = argv[1]
   output_dir = argv[2]
   is_train = (argv[3] == 'train')
+  if (len(argv) >=5 and argv[4] == 'debug'):
+    ptvsd.enable_attach(secret='secret')
+    ptvsd.wait_for_attach()
  
   # init random seed
   numpy.random.seed(100)
@@ -157,16 +170,16 @@ def main(argv):
   if not os.path.exists(output_dir):
     os.makedirs(output_dir)
 
-  x_q = T.lmatrix('q')
-  x_a = T.lmatrix('a')
-  x_q_overlap = T.imatrix('q_overlap')
-  x_a_overlap = T.imatrix('a_overlap')
-  y = T.ivector('y')
-  batch_x_q = T.lmatrix('batch_x_q')
-  batch_x_a = T.lmatrix('batch_x_a')
-  batch_x_q_overlap = T.imatrix('batch_x_q_overlap')
-  batch_x_a_overlap = T.imatrix('batch_x_a_overlap')
-  batch_y = T.ivector('batch_y')
+  x_q = T.tensor4('q')
+  x_a = T.tensor4('a')
+  x_q_overlap = T.tensor3('q_overlap')
+  x_a_overlap = T.tensor3('a_overlap')
+  y = T.vector('y')
+  batch_x_q = T.tensor4('batch_x_q')
+  batch_x_a = T.tensor4('batch_x_a')
+  batch_x_q_overlap = T.tensor3('batch_x_q_overlap')
+  batch_x_a_overlap = T.tensor3('batch_x_a_overlap')
+  batch_y = T.vector('batch_y')
 
   if (is_train):
     # set hyper parameters
@@ -202,28 +215,25 @@ def main(argv):
     print 'min_sent_size', numpy.min(a_train) 
     q_overlap_dev = q_overlap_dev[sample_idx]
     a_overlap_dev = a_overlap_dev[sample_idx]  
-    dummy_word_id = numpy.max(a_overlap_train) 
   else: # is_train
     q_test, a_test, q_overlap_test, a_overlap_test, y_test, qids_test = load_data(input_dir, 'test')
     q_max_sent_size = q_test.shape[1]
     a_max_sent_size = a_test.shape[1]
-    dummy_word_id = numpy.max(a_overlap_test)
     
   # number of dimmension for overlapping feature (the 0,1,2 features)
-  ndim = 5
-  print "Generating random vocabulary for word overlap indicator features with dim", ndim
-  vocab_emb_overlap = numpy_rng.randn(dummy_word_id+1, ndim) * 0.25
+  print "Generating random vocabulary for word overlap indicator features with dim", n_overlap_dim
+  vocab_emb_overlap = numpy_rng.randn(n_overlap_choices, n_overlap_dim) * 0.25
   vocab_emb_overlap[-1] = 0
+  vocab_emb_overlap = vocab_emb_overlap.astype(numpy.float32)
 
   # Load word2vec embeddings
   fname = os.path.join(input_dir, 'emb_aquaint+wiki.txt.gz.ndim=50.bin.npy')
   print "Loading word embeddings from", fname
   vocab_emb = numpy.load(fname)
-  ndim = vocab_emb.shape[1]
   print "Word embedding matrix size:", vocab_emb.shape
 
   # build network
-  nnet = deep_qa_net(batch_size, vocab_emb, vocab_emb_overlap, 
+  nnet = deep_qa_net(batch_size, vocab_emb_overlap, 
                             q_max_sent_size, a_max_sent_size, numpy_rng,
                             x_q, x_q_overlap, x_a, x_a_overlap, y,
                             100, 1, 1, 1, 0.5)
@@ -287,7 +297,7 @@ def main(argv):
                  y: batch_y}
 
   if (is_train):
-    cost = nnet.layers[-1].training_cost(y)
+    cost = nnet.layers[-1].training_cost(T.cast(y, 'int32'))
     updates = sgd_trainer.get_adadelta_updates(cost, params, rho=0.95, eps=1e-6, max_norm=max_norm, word_vec_name='W_emb')
     train_fn = theano.function(inputs=inputs_train,
                                outputs=cost,
@@ -302,12 +312,15 @@ def main(argv):
                             outputs=predictions_prob,
                             givens=givens_pred)
 
+  def embed(data):
+    return vocab_emb[data.flatten()].reshape(data.shape[0], 1, data.shape[1], vocab_emb.shape[1]).astype(numpy.float32)     
+
   def predict_batch(batch_iterator):
-    preds = numpy.hstack([pred_fn(batch_x_q, batch_x_a, batch_x_q_overlap, batch_x_a_overlap) for batch_x_q, batch_x_a, batch_x_q_overlap, batch_x_a_overlap, _ in batch_iterator])
+    preds = numpy.hstack([pred_fn(embed(batch_x_q), embed(batch_x_a), batch_x_q_overlap, batch_x_a_overlap) for batch_x_q, batch_x_a, batch_x_q_overlap, batch_x_a_overlap, _ in batch_iterator])
     return preds[:batch_iterator.n_samples]
 
   def predict_prob_batch(batch_iterator):
-    preds = numpy.hstack([pred_prob_fn(batch_x_q, batch_x_a, batch_x_q_overlap, batch_x_a_overlap) for batch_x_q, batch_x_a, batch_x_q_overlap, batch_x_a_overlap, _ in batch_iterator])
+    preds = numpy.hstack([pred_prob_fn(embed(batch_x_q), embed(batch_x_a), batch_x_q_overlap, batch_x_a_overlap) for batch_x_q, batch_x_a, batch_x_q_overlap, batch_x_a_overlap, _ in batch_iterator])
     return preds[:batch_iterator.n_samples]
 
   def map_score(qids, labels, preds):
@@ -349,7 +362,9 @@ def main(argv):
     while epoch < n_epochs:
         timer = time.time()
         for i, (x_q, x_a, x_q_overlap, x_a_overlap, y) in enumerate(tqdm(train_set_iterator), 1):
-            train_fn(x_q, x_a, x_q_overlap, x_a_overlap, y)
+            q_emb = embed(x_q)
+            a_emb = embed(x_a)
+            train_fn(q_emb, a_emb, x_q_overlap, x_a_overlap, y)
 
             # Make sure the null word in the word embeddings always remains zero
             if ZEROUT_DUMMY_WORD:
