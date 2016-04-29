@@ -196,15 +196,15 @@ if __name__ == '__main__':
   #train = 'jacana-qa-naacl2013-data-results/train.xml'
   #train_all = 'jacana-qa-naacl2013-data-results/train-all.xml'
   #train_files = [train, train_all]
-  train_files = ['/home/hct/qa/data/relevance/hb06_train.xml']
+  train_files = ['/home/hct/qa/data/relevance/7k+hb03_train_hb06_test/train.xml']
 
   for train in train_files:
     print train
 
     #dev = 'jacana-qa-naacl2013-data-results/dev.xml'
     #test = 'jacana-qa-naacl2013-data-results/test.xml'
-    dev = '/home/hct/qa/data/relevance/hb06_dev.xml'
-    test ='/home/hct/qa/data/relevance/hb03.xml'
+    dev = '/home/hct/qa/data/relevance/7k+hb03_train_hb06_test/dev.xml'
+    test ='/home/hct/qa/data/relevance/7k+hb03_train_hb06_test/test.xml'
 
     train_basename = os.path.basename(train)
     name, ext = os.path.splitext(train_basename)

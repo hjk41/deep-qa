@@ -40,9 +40,6 @@ def main():
   mode = 'train'
   if len(sys.argv) > 1:
     mode = sys.argv[1]
-    if not mode in ['TRAIN', 'TRAIN-ALL', 'HB06_TRAIN']:
-      print "ERROR! The two possible training settings are: ['TRAIN', 'TRAIN-ALL']"
-      sys.exit(1)
 
   print "Running training in the {} setting".format(mode)
 
@@ -127,22 +124,22 @@ def main():
   # vocab_emb_overlap = numpy_rng.randn(dummy_word_id+1, ndim) * 0.05
   # vocab_emb_overlap = numpy_rng.uniform(-0.25, 0.25, size=(dummy_word_id+1, ndim))
   vocab_emb_overlap[-1] = 0
+  vocab_emb_overlap = vocab_emb_overlap.astype(numpy.float32)
 
   # Load word2vec embeddings
   fname = os.path.join(data_dir, 'emb_aquaint+wiki.txt.gz.ndim=50.bin.npy')
 
   print "Loading word embeddings from", fname
-  vocab_emb = numpy.load(fname)
+  vocab_emb = numpy.load(fname).astype(numpy.float32)
   ndim = vocab_emb.shape[1]
   dummpy_word_idx = numpy.max(a_train)
   print "Word embedding matrix size:", vocab_emb.shape
 
-  x = T.fmatrix('x')
-  x_q = T.lmatrix('q')
-  x_q_overlap = T.lmatrix('q_overlap')
-  x_a = T.lmatrix('a')
-  x_a_overlap = T.lmatrix('a_overlap')
-  y = T.ivector('y')
+  x_q = T.matrix('q')
+  x_q_overlap = T.matrix('q_overlap')
+  x_a = T.matrix('a')
+  x_a_overlap = T.matrix('a_overlap')
+  y = T.vector('y')
 
   #######
   n_outs = 2
@@ -197,7 +194,7 @@ def main():
                                   join_layer,
                                   flatten_layer,
                                   ])
-  nnet_q.set_input((x_q, x_q_overlap))
+  nnet_q.set_input((T.cast(x_q, 'int32'), T.cast(x_q_overlap, 'int32')))
   ######
 
 
@@ -226,7 +223,7 @@ def main():
                                   join_layer,
                                   flatten_layer,
                                   ])
-  nnet_a.set_input((x_a, x_a_overlap))
+  nnet_a.set_input((T.cast(x_a, 'int32'), T.cast(x_a_overlap, 'int32')))
   #######
   # print 'nnet_q.output', nnet_q.output.ndim
 
@@ -313,7 +310,7 @@ def main():
   total_params = sum([numpy.prod(param.shape.eval()) for param in params])
   print 'Total params number:', total_params
 
-  cost = train_nnet.layers[-1].training_cost(y)
+  cost = train_nnet.layers[-1].training_cost(T.cast(y, 'int32'))
   # y_train_counts = numpy.unique(y_train, return_counts=True)[1].astype(numpy.float32)
   # weights_data = numpy.sum(y_train_counts) / y_train_counts
   # weights_data_norm = numpy.linalg.norm(weights_data)
@@ -345,11 +342,11 @@ def main():
   #   cost += T.sum(w**2) * L2_reg
 
   # batch_x = T.dmatrix('batch_x')
-  batch_x_q = T.lmatrix('batch_x_q')
-  batch_x_a = T.lmatrix('batch_x_a')
-  batch_x_q_overlap = T.lmatrix('batch_x_q_overlap')
-  batch_x_a_overlap = T.lmatrix('batch_x_a_overlap')
-  batch_y = T.ivector('batch_y')
+  batch_x_q = T.matrix('batch_x_q')
+  batch_x_a = T.matrix('batch_x_a')
+  batch_x_q_overlap = T.matrix('batch_x_q_overlap')
+  batch_x_a_overlap = T.matrix('batch_x_a_overlap')
+  batch_y = T.vector('batch_y')
 
   # updates = sgd_trainer.get_adagrad_updates(cost, params, learning_rate=learning_rate, max_norm=max_norm, _eps=1e-6)
   updates = sgd_trainer.get_adadelta_updates(cost, params, rho=0.95, eps=1e-6, max_norm=max_norm, word_vec_name='W_emb')

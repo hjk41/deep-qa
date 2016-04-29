@@ -20,7 +20,7 @@ def main():
   data_dirs = [
               'TRAIN',
               'TRAIN-ALL',
-              'HB06_TRAIN'
+              'HB03_TRAIN_HB06_TEST'
               ]
 
   for data_dir in data_dirs:
