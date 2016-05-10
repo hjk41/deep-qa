@@ -26,13 +26,16 @@ import ptvsd
 # theano.config.optimizer = 'fast_compile'
 # theano.config.exception_verbosity = 'high'
 
-n_epochs = 25
+n_epochs = 100
 batch_size = 50
-n_dev_batch = 20
+n_dev_batch = 200
 n_iter_per_val = 100
 n_outs = 2
 learning_rate = 0.1
 max_norm = 0
+early_stop_epochs = 5
+regularize = False
+pairwise_feature = False
 
 def conv_layer(batch_size,
     max_sent_length,
@@ -52,6 +55,7 @@ def conv_layer(batch_size,
   '''
   # perform lookup and then pad the matrix so we can later use it in conv
   lookup_table_words = nn_layers.LookupTableFastStatic(W=embedding, pad=max(filter_widths)-1)
+  #lookup_table_words = nn_layers.LookupTableFast(W=embedding, pad=max(filter_widths)-1)
   lookup_table_overlap = nn_layers.LookupTableFast(W=embedding_overlap, pad=max(filter_widths)-1)
   # concatenate the outputs of words and overlap into one
   # now the output dim is embedding+embedding_overlap, currently 50+5
@@ -115,20 +119,33 @@ def deep_qa_net(batch_size,
                       a_filter_widths, 100, 1, 1)
   q_logistic_n_in = n_conv_kern * len(q_filter_widths) * q_k_max
   a_logistic_n_in = n_conv_kern * len(a_filter_widths) * a_k_max
-  ## calculate similarity as sim = q.T * M * a
-  # output is (conv_out_a, conv_out_q, similarity)
-  pairwise_layer = nn_layers.PairwiseNoFeatsLayer(q_in=q_logistic_n_in,
-                                                a_in=a_logistic_n_in)
-  pairwise_layer.set_input((nnet_q.output, nnet_a.output))
-  ## hidden layer
-  # input is (conv_out_a, conv_out_q, similarity)
-  n_in = q_logistic_n_in + a_logistic_n_in + 1
-  hidden_layer = nn_layers.LinearLayer(numpy_randg, n_in=n_in, n_out=n_in, activation=T.tanh)
-  hidden_layer.set_input(pairwise_layer.output)
-  classifier = nn_layers.LogisticRegression(n_in=n_in, n_out=n_outs)
-  classifier.set_input(hidden_layer.output)
-  nnet = nn_layers.FeedForwardNet(layers=[nnet_q, nnet_a, pairwise_layer, hidden_layer, classifier],
-                                        name="nnet")
+  if (pairwise_feature):
+    ## calculate similarity as sim = q.T * M * a
+    # output is (conv_out_a, conv_out_q, similarity)
+    pairwise_layer = nn_layers.PairwiseNoFeatsLayer(q_in=q_logistic_n_in,
+                                                  a_in=a_logistic_n_in)
+    pairwise_layer.set_input((nnet_q.output, nnet_a.output))
+    # hidden layer
+    # input is (conv_out_a, conv_out_q, similarity)
+    n_in = q_logistic_n_in + a_logistic_n_in + 1
+    hidden_layer = nn_layers.LinearLayer(numpy_randg, n_in=n_in, n_out=n_in, activation=T.tanh)
+    hidden_layer.set_input(pairwise_layer.output)
+    hidden_layer2 = nn_layers.LinearLayer(numpy_randg, n_in=n_in, n_out=n_in, activation=T.tanh)
+    hidden_layer2.set_input(hidden_layer.output)
+    classifier = nn_layers.LogisticRegression(n_in=n_in, n_out=n_outs)
+    classifier.set_input(hidden_layer2.output)
+    nnet = nn_layers.FeedForwardNet(layers=[nnet_q, nnet_a, pairwise_layer, hidden_layer, hidden_layer2, classifier],
+                                          name="nnet")
+  else:
+    n_in = q_logistic_n_in + a_logistic_n_in
+    hidden_layer = nn_layers.LinearLayer(numpy_randg, n_in=n_in, n_out=n_in, activation=T.tanh)
+    hidden_layer.set_input(T.concatenate([nnet_q.output, nnet_a.output], axis=1))
+    hidden_layer2 = nn_layers.LinearLayer(numpy_randg, n_in=n_in, n_out=n_in, activation=T.tanh)
+    hidden_layer2.set_input(hidden_layer.output)
+    classifier = nn_layers.LogisticRegression(n_in=n_in, n_out=n_outs)
+    classifier.set_input(hidden_layer2.output)
+    nnet = nn_layers.FeedForwardNet(layers=[nnet_q, nnet_a, hidden_layer, hidden_layer2, classifier],
+                                          name="nnet")
   return nnet
 
 def load_data(input_dir, prefix):
@@ -142,11 +159,12 @@ def load_data(input_dir, prefix):
 
 def main(argv):
   if (len(argv) != 4):
-    print('usage: run_nnet.py inputdir outputdir train/test')
+    print('usage: run_nnet.py inputdir outputdir train/test/all')
     exit(1)
   input_dir = argv[1]
   output_dir = argv[2]
-  is_train = (argv[3] == 'train')
+  do_train = (argv[3] == 'train' or argv[3] == 'all')
+  do_test = (argv[3] == 'test' or argv[3] == 'all')
  
   # init random seed
   numpy.random.seed(100)
@@ -167,7 +185,7 @@ def main(argv):
   batch_x_a_overlap = T.matrix('batch_x_a_overlap')
   batch_y = T.vector('batch_y')
 
-  if (is_train):
+  if (do_train):
     # set hyper parameters
     ZEROUT_DUMMY_WORD = True
     n_outs = 2
@@ -202,7 +220,7 @@ def main(argv):
     q_overlap_dev = q_overlap_dev[sample_idx]
     a_overlap_dev = a_overlap_dev[sample_idx]  
     dummy_word_id = numpy.max(a_overlap_train) 
-  else: # is_train
+  if (do_test):
     q_test, a_test, q_overlap_test, a_overlap_test, y_test, qids_test = load_data(input_dir, 'test')
     q_max_sent_size = q_test.shape[1]
     a_max_sent_size = a_test.shape[1]
@@ -229,7 +247,7 @@ def main(argv):
                             x_q, x_q_overlap,
                             x_a, x_a_overlap,
                             100, 1, 1, 1, 0.5)
-  if is_train:
+  if do_train:
     nnet_fname = os.path.join(output_dir, 'nnet.dat')
     print "Saving to", nnet_fname
     cPickle.dump([nnet], open(nnet_fname, 'wb'), protocol=cPickle.HIGHEST_PROTOCOL)
@@ -241,24 +259,7 @@ def main(argv):
 
   predictions = nnet.layers[-1].y_pred
   predictions_prob = nnet.layers[-1].p_y_given_x[:,-1]
-  ### L2 regularization
-  # L2_word_emb = 1e-4
-  # L2_conv1d = 3e-5
-  # # L2_softmax = 1e-3
-  # L2_softmax = 1e-4
-  # print "Regularizing nnet weights"
-  # for w in train_nnet.weights:
-  #   L2_reg = 0.
-  #   if w.name.startswith('W_emb'):
-  #     L2_reg = L2_word_emb
-  #   elif w.name.startswith('W_conv1d'):
-  #     L2_reg = L2_conv1d
-  #   elif w.name.startswith('W_softmax'):
-  #     L2_reg = L2_softmax
-  #   elif w.name == 'W':
-  #     L2_reg = L2_softmax
-  #   print w.name, L2_reg
-  #   cost += T.sum(w**2) * L2_reg
+
   inputs_pred = [batch_x_q,
                  batch_x_a,
                  batch_x_q_overlap,
@@ -288,8 +289,28 @@ def main(argv):
                  # x: batch_x,
                  y: batch_y}
 
-  if (is_train):
+  if (do_train):
     cost = nnet.layers[-1].training_cost(T.cast(y, 'int32'))
+    if (regularize):
+      #### L2 regularization
+      L2_word_emb = 1e-4
+      L2_conv1d = 3e-5
+      # L2_softmax = 1e-3
+      L2_softmax = 1e-4
+      print "Regularizing nnet weights"
+      for w in nnet.weights:
+        L2_reg = 0.
+        if w.name.startswith('W_emb'):
+          L2_reg = L2_word_emb
+        elif w.name.startswith('W_conv1d'):
+          L2_reg = L2_conv1d
+        elif w.name.startswith('W_softmax'):
+          L2_reg = L2_softmax
+        elif w.name == 'W':
+          L2_reg = L2_softmax
+        print w.name, L2_reg
+        cost += T.sum(w**2) * L2_reg
+
     updates = sgd_trainer.get_adadelta_updates(cost, params, rho=0.95, eps=1e-6, max_norm=max_norm, word_vec_name='W_emb')
     train_fn = theano.function(inputs=inputs_train,
                                outputs=cost,
@@ -329,7 +350,7 @@ def main(argv):
     map_score = sum(average_precs) / len(average_precs)
     return map_score
 
-  if (is_train):
+  if (do_train):
     train_set_iterator = sgd_trainer.MiniBatchIteratorConstantBatchSize(numpy_rng, [q_train, a_train, q_overlap_train, a_overlap_train, y_train], batch_size=batch_size, randomize=True)
     dev_set_iterator = sgd_trainer.MiniBatchIteratorConstantBatchSize(numpy_rng, [q_dev, a_dev, q_overlap_dev, a_overlap_dev, y_dev], batch_size=batch_size, randomize=False)
     print "Zero out dummy word:", ZEROUT_DUMMY_WORD
@@ -371,7 +392,7 @@ def main(argv):
                 best_params = [numpy.copy(p.get_value(borrow=True)) for p in params]
                 no_best_dev_update = 0
 
-        if no_best_dev_update >= 3:
+        if no_best_dev_update >= early_stop_epochs:
           print "Quitting after of no update of the best score on dev set", no_best_dev_update
           break
 
@@ -383,12 +404,12 @@ def main(argv):
     print('Training took: {:.4f} seconds'.format(time.time() - timer_train))
 
   param_fname = os.path.join(output_dir, 'best_params.dat')
-  if (is_train):
+  if (do_train):
     for i, param in enumerate(best_params):
       params[i].set_value(param, borrow=True)
     cPickle.dump(best_params, open(param_fname, 'wb'), protocol=cPickle.HIGHEST_PROTOCOL)
     print('dumpping params to {}'.format(param_fname))
-  else: # is_train
+  if (do_test):
     best_params = cPickle.load(open(param_fname, 'rb'))
     for i, param in enumerate(best_params):
       params[i].set_value(param, borrow=True)    
@@ -398,6 +419,8 @@ def main(argv):
     print "Number of QA pairs: ", len(q_test)
     y_pred_test = predict_prob_batch(test_set_iterator)
     print('Testing took: {:.4f} seconds'.format(time.time() - timer_test))
+    auc = metrics.roc_auc_score(y_test, y_pred_test)
+    print("AUC on test data: {}".format(auc))
     test_acc = map_score(qids_test, y_test, y_pred_test) * 100 
     print "Running trec_eval script..."
     N = len(y_pred_test)

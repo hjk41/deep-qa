@@ -10,12 +10,13 @@ from utils import load_bin_vec
 
 from alphabet import Alphabet
 import ptvsd
-#ptvsd.enable_attach(secret='secret', address = ('0.0.0.0',9999))
+#ptvsd.enable_attach(secret='secret')
 #ptvsd.wait_for_attach()
 
 UNKNOWN_WORD_IDX = 0
+max_sent_size = 70
 
-def load_xml(fname):
+def load_xml(fname, skip_long_sent):
   '''
   load a sample file stored as xml
   '''
@@ -39,22 +40,24 @@ def load_xml(fname):
       question = question.split('\t')
 
     label = re.match('^<(positive|negative)>', prev)
+    prev = line
     if label:
       label = label.group(1)
       label = 1.0 if label == 'positive' else 0.0
       answer = line.lower().split('\t')
-      #if len(answer) > 60:
-      if len(answer) > 70:
-        #num_skipped += 1
-        #continue
-        answer = answer[:70]
+      if len(answer) > max_sent_size:
+        if (skip_long_sent == True):
+          num_skipped += 1
+          continue
+        else:
+          #print('\n{}: {}\n{}|||{}'.format(label, ' '.join(question), ' '.join(answer[:max_sent_size]), ' '.join(answer[max_sent_size:])))
+          answer = answer[:max_sent_size]
       labels.append(label)
       answers.append(answer)
       questions.append(question)
       qids.append(qid)
-    prev = line
   # print sorted(qid2num_answers.items(), key=lambda x: float(x[0]))
-  # print 'num_skipped: ', num_skipped
+  print 'num_skipped: ', num_skipped
   return question2qid.keys(), qids, questions, answers, labels
 
 def passage2list(psg):
@@ -98,7 +101,7 @@ def passage2list(psg):
     list.append(psg[wordStart:pos])
   return list    
 
-def load_tsv(fname):
+def load_tsv(fname, skip_long_sent, resample):
   lines = open(fname).readlines()
   # skip tsv header
   #header = lines.pop(0)
@@ -107,6 +110,8 @@ def load_tsv(fname):
   curr_qid = 0
   num_skipped = 0
   question2qid = {}
+  good_pairs = []
+  bad_pairs = []
   for i, line in enumerate(lines):
     line = line.strip().lower()
     # Query   Url     PassageID       Passage Rating1 Rating2
@@ -115,38 +120,62 @@ def load_tsv(fname):
       print('error parsing line', i)
       print('line:\n', line)
       exit(1)
-    q = qupprr[0]
+    q = qupprr[0].lower()
     if not q in question2qid:
+      if (resample):
+        np.random.shuffle(bad_pairs)
+        bad_pairs = bad_pairs[:len(good_pairs) * 2]
+      if (len(good_pairs) != 0):  # get rid of non-triggering questions
+        for p in good_pairs:
+          labels.append(p[0])
+          answers.append(p[1])
+          questions.append(p[2])
+          qids.append(p[3])
+        for p in bad_pairs:
+          labels.append(p[0])
+          answers.append(p[1])
+          questions.append(p[2])
+          qids.append(p[3])
+      good_pairs = []
+      bad_pairs = []
       question2qid[q] = curr_qid
       qid = curr_qid
       curr_qid += 1
     else:
       qid = question2qid[q]
     question = passage2list(q)      ### should we convert to lower case?
-    answer = passage2list(qupprr[3])
-    if len(answer) > 70:
-      answer = answer[:70]
+    answer = passage2list(qupprr[3].lower())
+    if len(answer) > max_sent_size:
+      if(skip_long_sent):
+        num_skipped += 1
+        continue
+      else:
+        answer = answer[:max_sent_size]
     r2 = qupprr[5].lower()
     if r2 == 'perfect':
       label = 1.0
     elif r2 == 'good':
-      label = 1.0
+      label = 0.0
+      continue    ## get rid of answers that we are not sure of
     else:
       label = 0.0
-    labels.append(label)
-    answers.append(answer)
-    questions.append(question)
-    qids.append(qid)
-    prev = line
+    if (label > 0):
+      good_pairs.append((label, answer, question, qid))
+    else:
+      bad_pairs.append((label, answer, question, qid))
+    #labels.append(label)
+    #answers.append(answer)
+    #questions.append(question)
+    #qids.append(qid)
   return question2qid.keys(), qids, questions, answers, labels
 
-def load_data(fname):
+def load_data(fname, skip_long_sent = True, resample = True):
   basename = os.path.basename(fname)
   name, ext = os.path.splitext(basename)
   if (ext == '.tsv'):
-    return load_tsv(fname)
+    return load_tsv(fname, skip_long_sent, resample)
   else:
-    return load_xml(fname)  
+    return load_xml(fname, skip_long_sent)  
 
 def compute_overlap_features(questions, answers, word2df=None, stoplist=None):
   '''
@@ -309,10 +338,13 @@ def dump_embedding(outdir, embeddingfile, alphabet):
   random_words_count = 0
   np.random.seed(321)
   vocab_emb = np.zeros((len(alphabet) + 1, ndim))
+  dummy_word_emb = np.random.uniform(-0.25, 0.25, ndim)
   for word, idx in alphabet.iteritems():
     word_vec = word2vec.get(word, None)
     if word_vec is None:
       word_vec = np.random.uniform(-0.25, 0.25, ndim)
+      #word_vec = dummy_word_emb
+      #word_vec = np.zeros(ndim)
       random_words_count += 1
     vocab_emb[idx] = word_vec
   print "Using zero vector as random"
@@ -362,7 +394,7 @@ if __name__ == '__main__':
   all_fname = "/tmp/trec-merged" + ext
   files = ' '.join([train, dev, test])
   subprocess.call("/bin/cat {} > {}".format(files, all_fname), shell=True)
-  unique_questions, qids, questions, answers, labels = load_data(all_fname)
+  unique_questions, qids, questions, answers, labels = load_data(all_fname, resample = False)
 
   docs = answers + unique_questions
   word2dfs = compute_dfs(docs)
@@ -389,7 +421,7 @@ if __name__ == '__main__':
 
   # Convert datasets
   train_unique_qs, train_qids, train_questions, train_answers, train_labels = load_data(train)
-  test_unique_qs, test_qids, test_questions, test_answers, test_labels = load_data(test)
+  test_unique_qs, test_qids, test_questions, test_answers, test_labels = load_data(test, resample=False)
   if (dev == ""):
     # get 1/6 of train data and put it in dev
     train_size = len(train_qids)
