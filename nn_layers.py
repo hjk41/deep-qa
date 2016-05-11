@@ -3,7 +3,7 @@ import numpy
 import theano
 from theano import tensor as T
 from theano.tensor.nnet import conv
-from theano.tensor.signal import downsample
+from theano.tensor.signal import pool
 import theano.sandbox.neighbours as TSN
 from theano.tensor.shared_randomstreams import RandomStreams
 
@@ -386,7 +386,7 @@ class MaxPoolLayer(Layer):
 
   def output_func(self, input):
     # In input we get a tensor (batch_size, nwords, ndim)
-    return downsample.max_pool_2d(input=input, ds=self.pool_size, ignore_border=True)
+    return pool.pool_2d(input=input, ds=self.pool_size, ignore_border=True, mode='max')
 
   def __repr__(self):
     return "{}: pool_size={}".format(self.__class__.__name__, self.pool_size)
@@ -429,7 +429,7 @@ class Conv1dLayer(ConvolutionLayer):
     return conv1d.convolve1d_4D(input, self.W, mode='full')
 
 
-class Conv2dLayer(ConvolutionLayer):
+class  Conv2dLayer(ConvolutionLayer):
 
   def output_func(self, input):
     return conv.conv2d(input, self.W, border_mode='valid',

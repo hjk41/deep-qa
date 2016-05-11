@@ -36,6 +36,8 @@ max_norm = 0
 early_stop_epochs = 5
 regularize = False
 pairwise_feature = False
+n_conv_layer = 1
+n_conv_kernels = 100
 
 def conv_layer(batch_size,
     max_sent_length,
@@ -61,14 +63,25 @@ def conv_layer(batch_size,
   # now the output dim is embedding+embedding_overlap, currently 50+5
   lookup_table = nn_layers.ParallelLookupTable(layers=[lookup_table_words, lookup_table_overlap])
   ndim = embedding.shape[1] + embedding_overlap.shape[1]
-  input_shape = (batch_size, n_input_channel, max_sent_length + 2*(max(filter_widths)-1), ndim)
   conv_layers = []
   for filter_width in filter_widths:
-    filter_shape = (n_conv_kern, n_input_channel, filter_width, ndim)
-    conv = nn_layers.Conv2dLayer(rng=numpy_randg, filter_shape=filter_shape, input_shape=input_shape)
-    non_linearity = nn_layers.NonLinearityLayer(b_size=filter_shape[0], activation=T.tanh)
-    pooling = nn_layers.KMaxPoolLayer(k_max=pooling_k_max)
-    conv2dNonLinearMaxPool = nn_layers.FeedForwardNet(layers=[conv, non_linearity, pooling])
+    convs = []
+    sent_length = max_sent_length + 2*(max(filter_widths)-1)
+    for i in range(n_conv_layer):
+      if (i == 0):
+        input_shape = (batch_size, n_input_channel, sent_length, ndim)
+        filter_shape = (n_conv_kern, n_input_channel, filter_width, ndim)
+      else:
+        input_shape = (batch_size, n_conv_kern, sent_length, 1)
+        sent_length = sent_length / 2
+        filter_shape = (n_conv_kern, n_conv_kern, filter_width, 1)      
+      conv = nn_layers.Conv2dLayer(rng=numpy_randg, filter_shape=filter_shape, input_shape=input_shape)
+      non_linearity = nn_layers.NonLinearityLayer(b_size=filter_shape[0], activation=T.nnet.relu)
+      #pooling = nn_layers.KMaxPoolLayer(k_max=pooling_k_max)
+      pooling = nn_layers.MaxPoolLayer((2, 1))
+      convs.append(nn_layers.FeedForwardNet(layers=[conv, non_linearity, pooling]))
+    convs.append(nn_layers.KMaxPoolLayer(k_max=pooling_k_max))
+    conv2dNonLinearMaxPool = nn_layers.FeedForwardNet(layers=convs)
     conv_layers.append(conv2dNonLinearMaxPool)
   join_layer = nn_layers.ParallelLayer(layers=conv_layers)
   flatten_layer = nn_layers.FlattenLayer()
@@ -111,12 +124,12 @@ def deep_qa_net(batch_size,
   nnet_q = conv_layer(batch_size, q_max_sent_length, 
                       embedding, embedding_overlap, numpy_randg, 
                       x_q, x_q_overlap,
-                      q_filter_widths, 100, 1, 1)
+                      q_filter_widths, n_conv_kern, 1, 1)
   ## answer conv
   nnet_a = conv_layer(batch_size, a_max_sent_length, 
                       embedding, embedding_overlap, numpy_randg, 
                       x_a, x_a_overlap,
-                      a_filter_widths, 100, 1, 1)
+                      a_filter_widths, n_conv_kern, 1, 1)
   q_logistic_n_in = n_conv_kern * len(q_filter_widths) * q_k_max
   a_logistic_n_in = n_conv_kern * len(a_filter_widths) * a_k_max
   if (pairwise_feature):
@@ -246,7 +259,7 @@ def main(argv):
                             q_max_sent_size, a_max_sent_size, numpy_rng,
                             x_q, x_q_overlap,
                             x_a, x_a_overlap,
-                            100, 1, 1, 1, 0.5)
+                            n_conv_kernels, 1, 1, 1, 0.5)
   if do_train:
     nnet_fname = os.path.join(output_dir, 'nnet.dat')
     print "Saving to", nnet_fname
