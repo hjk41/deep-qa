@@ -19,8 +19,6 @@ import warnings
 warnings.filterwarnings("ignore")  # TODO remove
 
 import ptvsd
-#ptvsd.enable_attach(secret='secret')
-#ptvsd.wait_for_attach()
 
 ### THEANO DEBUG FLAGS
 # theano.config.optimizer = 'fast_compile'
@@ -148,6 +146,13 @@ def deep_qa_net(batch_size,
                                           name="nnet")
   return nnet
 
+def to1hot(data):
+  b = numpy.zeros((data.shape[0], data.shape[1], n_overlap_choices))
+  for i in range(data.shape[0]):
+      for j in range(data.shape[1]):
+        b[i, j, data[i, j]] = 1.0
+  return b
+
 def load_data(input_dir, prefix):
   q = numpy.load(os.path.join(input_dir, prefix + '.questions.npy')).astype(numpy.float32)
   a = numpy.load(os.path.join(input_dir, prefix + '.answers.npy')).astype(numpy.float32)
@@ -229,7 +234,7 @@ def main(argv):
   # number of dimmension for overlapping feature (the 0,1,2 features)
   ndim = 5
   print "Generating random vocabulary for word overlap indicator features with dim", ndim
-  vocab_emb_overlap = numpy_rng.randn(dummy_word_id+1, ndim) * 0.25
+  vocab_emb_overlap = numpy_rng.randn(3, ndim) * 0.25
   vocab_emb_overlap[-1] = 0
   vocab_emb_overlap = vocab_emb_overlap.astype(numpy.float32)
 
@@ -237,7 +242,6 @@ def main(argv):
   fname = os.path.join(input_dir, 'emb_aquaint+wiki.txt.gz.ndim=50.bin.npy')
   print "Loading word embeddings from", fname
   vocab_emb = numpy.load(fname)
-  ndim = vocab_emb.shape[1]
   print "Word embedding matrix size:", vocab_emb.shape
   vocab_emb = vocab_emb.astype(numpy.float32)
 
@@ -324,6 +328,9 @@ def main(argv):
   pred_prob_fn = theano.function(inputs=inputs_pred,
                             outputs=predictions_prob,
                             givens=givens_pred)
+
+  def embed(data):
+    return vocab_emb[data.flatten()].reshape(data.shape[0], 1, data.shape[1], vocab_emb.shape[1]).astype(numpy.float32)     
 
   def predict_batch(batch_iterator):
     preds = numpy.hstack([pred_fn(batch_x_q, batch_x_a, batch_x_q_overlap, batch_x_a_overlap) for batch_x_q, batch_x_a, batch_x_q_overlap, batch_x_a_overlap, _ in batch_iterator])

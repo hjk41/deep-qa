@@ -170,6 +170,24 @@ class LookupTableFast(Layer):
     def __repr__(self):
       return "{}: {}".format(self.__class__.__name__, self.W.shape.eval())
 
+class Embedding1Hot(Layer):
+    """ Embedding layer, input is 1-hot encoded, so actually it is a matmult
+    Padding is used to force conv2d with valid mode behave as working in full mode."""
+    def __init__(self, W=None, pad=None):
+      super(Embedding1Hot, self).__init__()
+      self.pad = pad
+      self.W = theano.shared(value=W, name='W_emb', borrow=True)
+      self.weights = [self.W]
+
+    def output_func(self, input):
+      out = T.tensordot(input, self.W,[2, 0]).reshape((input.shape[0], 1, input.shape[1], self.W.shape[1]))
+      if self.pad:
+        pad_matrix = T.zeros((out.shape[0], out.shape[1], self.pad, out.shape[3]))
+        out = T.concatenate([pad_matrix, out, pad_matrix], axis=2)
+      return out
+
+    def __repr__(self):
+      return "{}: {}".format(self.__class__.__name__, self.W.shape.eval())
 
 class PadLayer(Layer):
   def __init__(self, pad, axis=2):
@@ -218,7 +236,6 @@ class ParallelLookupTable(FeedForwardNet):
       layer.set_input(x)
       layers_out.append(layer.output)
     return T.concatenate(layers_out, axis=3)
-
 
 class FlattenLayer(Layer):
   """ Basic linear transformation layer (W.X + b) """
