@@ -19,13 +19,15 @@ import warnings
 warnings.filterwarnings("ignore")  # TODO remove
 
 import ptvsd
+#ptvsd.enable_attach(secret='secret')
+#ptvsd.wait_for_attach()
 
 ### THEANO DEBUG FLAGS
 # theano.config.optimizer = 'fast_compile'
 # theano.config.exception_verbosity = 'high'
 
 n_epochs = 100
-batch_size = 50
+batch_size = 100
 n_dev_batch = 200
 n_iter_per_val = 100
 n_outs = 2
@@ -193,7 +195,6 @@ def main(argv):
   if (do_train):
     # set hyper parameters
     ZEROUT_DUMMY_WORD = True
-    n_outs = 2
     learning_rate = 0.1
     max_norm = 0
     print 'batch_size', batch_size
@@ -239,10 +240,15 @@ def main(argv):
   vocab_emb_overlap = vocab_emb_overlap.astype(numpy.float32)
 
   # Load word2vec embeddings
-  fname = os.path.join(input_dir, 'emb_aquaint+wiki.txt.gz.ndim=50.bin.npy')
+  fname = os.path.join(input_dir, 'emb.npy')
   print "Loading word embeddings from", fname
   vocab_emb = numpy.load(fname)
   print "Word embedding matrix size:", vocab_emb.shape
+  # append a vector for unknown words, and a vector for empty words
+  embed_dim = vocab_emb.shape[1]
+  unknown_emb = numpy.ones(embed_dim)
+  empty_emb = numpy.zeros(embed_dim)
+  vocab_emb = numpy.concatenate([vocab_emb, numpy.array([unknown_emb, empty_emb])], axis=0)
   vocab_emb = vocab_emb.astype(numpy.float32)
 
   # build network
@@ -361,9 +367,9 @@ def main(argv):
     train_set_iterator = sgd_trainer.MiniBatchIteratorConstantBatchSize(numpy_rng, [q_train, a_train, q_overlap_train, a_overlap_train, y_train], batch_size=batch_size, randomize=True)
     dev_set_iterator = sgd_trainer.MiniBatchIteratorConstantBatchSize(numpy_rng, [q_dev, a_dev, q_overlap_dev, a_overlap_dev, y_dev], batch_size=batch_size, randomize=False)
     print "Zero out dummy word:", ZEROUT_DUMMY_WORD
-    if ZEROUT_DUMMY_WORD:
-      W_emb_list = [w for w in params if w.name == 'W_emb']
-      zerout_dummy_word = theano.function([], updates=[(W, T.set_subtensor(W[-1:], 0.)) for W in W_emb_list])
+    #if ZEROUT_DUMMY_WORD:
+    #  W_emb_list = [w for w in params if w.name == 'W_emb']
+    #  zerout_dummy_word = theano.function([], updates=[(W, T.set_subtensor(W[-1:], 0.)) for W in W_emb_list])
 
 
     # weights_dev = numpy.zeros(len(y_dev))
@@ -382,8 +388,8 @@ def main(argv):
             train_fn(x_q, x_a, x_q_overlap, x_a_overlap, y)
 
             # Make sure the null word in the word embeddings always remains zero
-            if ZEROUT_DUMMY_WORD:
-              zerout_dummy_word()
+            #if ZEROUT_DUMMY_WORD:
+            #  zerout_dummy_word()
 
             if i % n_iter_per_val == 0 or i == num_train_batches:
               y_pred_dev = predict_prob_batch(dev_set_iterator)

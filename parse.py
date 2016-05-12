@@ -5,6 +5,7 @@ import cPickle
 import subprocess
 import sys
 import string
+import shutil
 from collections import defaultdict
 from utils import load_bin_vec
 
@@ -13,8 +14,12 @@ import ptvsd
 #ptvsd.enable_attach(secret='secret')
 #ptvsd.wait_for_attach()
 
-UNKNOWN_WORD_IDX = 0
 max_sent_size = 70
+embedding = 'embeddings/aquaint+wiki.txt.gz.ndim=50'
+'''
+UNKNOW_WORD_IDX = len(vocab)
+EMPTY_WORD_IDX = len(vocab + 1)
+'''
 
 def load_xml(fname, skip_long_sent):
   '''
@@ -274,83 +279,127 @@ def add_to_vocab(data, alphabet):
       alphabet.add(token)
 
 
-def convert2indices(data, alphabet, dummy_word_idx, max_sent_length=40):
+def convert2indices(data, alphabet, unknown_word_idx, empty_word_idx, max_sent_length=40):
   data_idx = []
+  unknown_words = set()
   for sentence in data:
-    ex = np.ones(max_sent_length) * dummy_word_idx
+    ex = np.ones(max_sent_length) * empty_word_idx
     for i, token in enumerate(sentence):
-      idx = alphabet.get(token, UNKNOWN_WORD_IDX)
+      idx = alphabet.get(token, unknown_word_idx)
+      if (idx == unknown_word_idx):
+          unknown_words.add(token)
       ex[i] = idx
     data_idx.append(ex)
   data_idx = np.array(data_idx).astype('int32')
-  return data_idx
+  return (data_idx, unknown_words)
+
+def calculate_tfidf(data, word2dfs, max_sent_length):
+  data_tfidf = []
+  for sentence in data:
+    ex = np.zeros(max_sent_length)
+    for i, token in enumerate(sentence):
+      tfidf = word2dfs.get(token)
+      ex[i] = tfidf
+    data_tfidf.append(ex)
+  data_tfidf = np.array(data_tfidf).astype('float32')
+  return data_tfidf
 
 def convert_dataset(qids, questions, answers, labels, 
     stoplist, 
     word2dfs,
-    alphabet,
-    dummy_word_idx,
-    q_max_sent_length,
-    a_max_sent_length,
-    outdir, basename):
+    word2id,
+    unknown_word_idx,
+    prefix):
   '''
   convert a dataset into the feature files we need, and store
   the result in outdir
   '''
+  # summarize max sentense length
+  q_max_sent_length = max(map(lambda x: len(x), questions))
+  a_max_sent_length = max(map(lambda x: len(x), answers))
+  print 'q_max_sent_length', q_max_sent_length
+  print 'a_max_sent_length', a_max_sent_length
 
   overlap_feats = compute_overlap_features(questions, answers, stoplist=None, word2df=word2dfs)
   overlap_feats_stoplist = compute_overlap_features(questions, answers, stoplist=stoplist, word2df=word2dfs)
   overlap_feats = np.hstack([overlap_feats, overlap_feats_stoplist])
-  print 'overlap_feats shape=', overlap_feats.shape
 
   qids = np.array(qids)
   labels = np.array(labels).astype('float32')
   _, counts = np.unique(labels, return_counts=True)
   print "label frequencies: ", counts / float(np.sum(counts))
-  print "unique questions: ", len(np.unique(qids))
   print "samples: ", len(labels)
 
   q_overlap_indices, a_overlap_indices = compute_overlap_idx(questions, answers, stoplist, q_max_sent_length, a_max_sent_length)
+  questions_idx, q_unknown_words = convert2indices(questions, word2id, unknown_word_idx, unknown_word_idx + 1, q_max_sent_length)
+  answers_idx, a_unknown_words = convert2indices(answers, word2id, unknown_word_idx, unknown_word_idx + 1, a_max_sent_length)
+  unknown_words = q_unknown_words.union(a_unknown_words)
+  q_tfidf = calculate_tfidf(questions, word2dfs, q_max_sent_length)
+  a_tfidf = calculate_tfidf(answers, word2dfs, a_max_sent_length)
 
-  questions_idx = convert2indices(questions, alphabet, dummy_word_idx, q_max_sent_length)
-  answers_idx = convert2indices(answers, alphabet, dummy_word_idx, a_max_sent_length)
-  print 'answers_idx', answers_idx.shape
-
+  print('dumping files')
   # question ids for each sample
-  np.save(os.path.join(outdir, '{}.qids.npy'.format(basename)), qids)
+  np.save(prefix + '.qids.npy', qids)
   # questions of each sample, represented by word indices
-  np.save(os.path.join(outdir, '{}.questions.npy'.format(basename)), questions_idx)
+  np.save(prefix + '.questions.npy', questions_idx)
   # answers of each sample, represented by word indices
-  np.save(os.path.join(outdir, '{}.answers.npy'.format(basename)), answers_idx)
+  np.save(prefix + '.answers.npy', answers_idx)
   # labels of each sample, represented as float32
-  np.save(os.path.join(outdir, '{}.labels.npy'.format(basename)), labels)
+  np.save(prefix + '.labels.npy', labels)
   # overlap features, including features with and without stoplist
-  np.save(os.path.join(outdir, '{}.overlap_feats.npy'.format(basename)), overlap_feats)
-  np.save(os.path.join(outdir, '{}.q_overlap_indices.npy'.format(basename)), q_overlap_indices)
-  np.save(os.path.join(outdir, '{}.a_overlap_indices.npy'.format(basename)), a_overlap_indices)
+  np.save(prefix + '.overlap_feats.npy', overlap_feats)
+  np.save(prefix + '.q_overlap_indices.npy', q_overlap_indices)
+  np.save(prefix + '.a_overlap_indices.npy', a_overlap_indices)
+  np.save(prefix + '.q_tfidf.npy', q_tfidf)
+  np.save(prefix + '.a_tfidf.npy', a_tfidf)
+  with open(prefix + '.nonembed.txt', 'w') as f:
+    for w in unknown_words:
+      f.write('{}\n'.format(w))
+
+def load_glove(embeddingfile, words):
+  word2vec = {}
+  with open(embeddingfile) as f:
+    i = 0
+    for line in f:
+      i += 1
+      if (i % 1000 == 0):
+        sys.stdout.write('load {} lines\t\t\r'.format(i))
+        sys.stdout.flush()
+      fields = line.split()
+      w = fields[0]
+      if (w not in words):
+        continue
+      word2vec[w] = np.array([float(f) for f in fields[1:]])
+  sys.stdout.write('\n')
+  return word2vec
 
 def dump_embedding(outdir, embeddingfile, alphabet):
   words = alphabet.keys()
   print "Vocab size: ", len(alphabet)
-  word2vec = load_bin_vec(embeddingfile, words)
+  #word2vec = load_bin_vec(embeddingfile, words)
+  word2vec = load_glove(embeddingfile, words)
+  print "embedded vocab: ", len(word2vec)
   ndim = len(word2vec[word2vec.keys()[0]])
   print 'embedding dim: ', ndim
   random_words_count = 0
   np.random.seed(321)
   vocab_emb = np.zeros((len(alphabet) + 1, ndim))
   dummy_word_emb = np.random.uniform(-0.25, 0.25, ndim)
+  print('out-of-vocab words:')
   for word, idx in alphabet.iteritems():
     word_vec = word2vec.get(word, None)
     if word_vec is None:
+      print(word)
       word_vec = np.random.uniform(-0.25, 0.25, ndim)
       #word_vec = dummy_word_emb
       #word_vec = np.zeros(ndim)
+      #word_vec = np.ones(ndim)
       random_words_count += 1
     vocab_emb[idx] = word_vec
   print "Using zero vector as random"
   print 'random_words_count', random_words_count
   print 'vocab_emb.shape', vocab_emb.shape
-  outfile = os.path.join(outdir, 'emb_{}.npy'.format(os.path.basename(embeddingfile)))
+  outfile = os.path.join(outdir, 'emb.npy'.format(os.path.basename(embeddingfile)))
   print 'saving embedding file', outfile
   np.save(outfile, vocab_emb)
 
@@ -359,29 +408,31 @@ def sample(list, idx):
 
 if __name__ == '__main__':
   '''
-  parses a dataset (including train, validation, and test) into float features
+  parses a dataset into features
 
   The input can be xml format or tsv format
-  If validation file is not given, it takes 1/6 of randomly sampled samples
-  from training set
   '''
   if (len(sys.argv) < 4):
-    print("usage: parse.py outputdir trainfile testfile [validationfile]")
+    print("usage: parse.py inputfile outputdir fileprefix")
+    print("    example: parse.py hb03.tsv HB03 train")
     exit(1)
   
   # parse command line arguments
-  outdir = sys.argv[1]
-  train = sys.argv[2]
-  test = sys.argv[3]
-  dev = "" if len(sys.argv) < 5 else sys.argv[4]
-  print("using:\n"
-      "    outputdir={}\n"
-      "    train={}\n"
-      "    validation={}\n"
-      "    test={}".format(outdir, train, dev, test))
+  inputfile = sys.argv[1]
+  outputdir = sys.argv[2]
+  fileprefix = sys.argv[3]
+  outputprefix = os.path.join(outputdir, fileprefix)
 
-  if not os.path.exists(outdir):
-    os.makedirs(outdir)
+  # compose output file names
+  print("using:\n"
+      "    inputfile={}\n"
+      "will output:\n"
+      "    {}.(qids, questions, answers, labels, overlap).npy\n"
+      "words with no embedding will be stored in {}.nonembed.txt\n"
+      " ".format(inputfile, outputprefix, outputprefix))
+
+  if not os.path.exists(outputdir):
+    os.makedirs(outputdir)
 
   # load stoplist
   stoplist = set()
@@ -389,93 +440,27 @@ if __name__ == '__main__':
   punct = set(string.punctuation)
   #stoplist.update(punct)
 
-  # merge inputs to compute word frequencies
-  _, ext = os.path.splitext(os.path.basename(train))
-  all_fname = "/tmp/trec-merged" + ext
-  files = ' '.join([train, dev, test])
-  subprocess.call("/bin/cat {} > {}".format(files, all_fname), shell=True)
-  unique_questions, qids, questions, answers, labels = load_data(all_fname, resample = False)
-
+  # compute word frequencies
+  print('loading input file {}'.format(inputfile))
+  unique_questions, qids, questions, answers, labels = load_data(inputfile, resample = False)
   docs = answers + unique_questions
   word2dfs = compute_dfs(docs)
-  print word2dfs.items()[:10]
 
-  # map words to ids
-  alphabet = Alphabet(start_feature_id=0)
-  alphabet.add('UNKNOWN_WORD_IDX')
-  add_to_vocab(answers, alphabet)
-  add_to_vocab(questions, alphabet)
-  basename = os.path.basename(train)
-  cPickle.dump(alphabet, open(os.path.join(outdir, 'vocab.pickle'), 'w'))
-  print "alphabet size=", len(alphabet)
-
-  # dump embedding file
-  dummy_word_idx = alphabet.fid
-  dump_embedding(outdir, 'embeddings/aquaint+wiki.txt.gz.ndim=50.bin', alphabet)
-
-  # summarize max sentense length
-  q_max_sent_length = max(map(lambda x: len(x), questions))
-  a_max_sent_length = max(map(lambda x: len(x), answers))
-  print 'q_max_sent_length', q_max_sent_length
-  print 'a_max_sent_length', a_max_sent_length
+  # load embedding
+  print('loading embedding {}'.format(embedding))
+  word2id = cPickle.load(open(embedding + '.vocab.pickle'))
+  unknown_word_id = len(word2id)
+  local_emb_file = os.path.join(outputdir, 'emb.npy')
+  if (not os.path.exists(local_emb_file)):
+    shutil.copy(embedding + '.npy', local_emb_file)
 
   # Convert datasets
-  train_unique_qs, train_qids, train_questions, train_answers, train_labels = load_data(train)
-  test_unique_qs, test_qids, test_questions, test_answers, test_labels = load_data(test, resample=False)
-  if (dev == ""):
-    # get 1/6 of train data and put it in dev
-    train_size = len(train_qids)
-    sample_idx = np.arange(train_size)
-    np.random.shuffle(sample_idx)
-    dev_size = train_size / 6;
-    dev_samples = sample_idx[:dev_size]
-    train_samples = sample_idx[dev_size:]
-    dev_qids = sample(train_qids,dev_samples)
-    train_qids = sample(train_qids,train_samples)
-    dev_questions = sample(train_questions,dev_samples)
-    train_questions = sample(train_questions,train_samples)
-    dev_answers = sample(train_answers,dev_samples)
-    train_answers = sample(train_answers,train_samples)
-    dev_labels = sample(train_labels,dev_samples)
-    train_labels = sample(train_labels,train_samples)
-  else:
-    dev_unique_qs, dev_qids, dev_questions, dev_answers, dev_labels = load_data(dev)
-  convert_dataset(qids = train_qids, 
-      questions = train_questions,
-      answers = train_answers,
-      labels = train_labels,
+  convert_dataset(qids = qids, 
+      questions = questions,
+      answers = answers,
+      labels = labels,
       stoplist = stoplist,
       word2dfs = word2dfs,
-      alphabet = alphabet,
-      dummy_word_idx = dummy_word_idx,
-      q_max_sent_length = q_max_sent_length,
-      a_max_sent_length = a_max_sent_length,
-      outdir = outdir,
-      basename = "train")
-  convert_dataset(qids = dev_qids, 
-      questions = dev_questions,
-      answers = dev_answers,
-      labels = dev_labels,
-      stoplist = stoplist,
-      word2dfs = word2dfs,
-      alphabet = alphabet,
-      dummy_word_idx = dummy_word_idx,
-      q_max_sent_length = q_max_sent_length,
-      a_max_sent_length = a_max_sent_length,
-      outdir = outdir,
-      basename = "dev")
-  convert_dataset(qids = test_qids, 
-      questions = test_questions,
-      answers = test_answers,
-      labels = test_labels,
-      stoplist = stoplist,
-      word2dfs = word2dfs,
-      alphabet = alphabet,
-      dummy_word_idx = dummy_word_idx,
-      q_max_sent_length = q_max_sent_length,
-      a_max_sent_length = a_max_sent_length,
-      outdir = outdir,
-      basename = "test")
-
-  
-
+      word2id = word2id,
+      unknown_word_idx = unknown_word_id,
+      prefix = outputprefix)
