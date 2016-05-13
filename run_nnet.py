@@ -10,6 +10,7 @@ import time
 from collections import defaultdict
 import subprocess
 import pandas as pd
+import argparse
 from tqdm import tqdm
 
 import nn_layers
@@ -30,6 +31,7 @@ n_epochs = 100
 batch_size = 100
 n_dev_batch = 200
 n_iter_per_val = 100
+n_conv_kernels = 100
 n_outs = 2
 learning_rate = 0.1
 max_norm = 0
@@ -38,7 +40,6 @@ regularize = False
 pairwise_feature = False
 
 def conv_layer(batch_size,
-    max_sent_length,
     embedding,                # embedding dictionary, from id to vector, static
     embedding_overlap,        # embedding matrix for the overlap feature, will be updated
     numpy_randg,              # numpy random number generator
@@ -84,8 +85,6 @@ def conv_layer(batch_size,
 def deep_qa_net(batch_size,
     embedding,                # embedding dictionary, from id to vector, static
     embedding_overlap,        # embedding matrix for the overlap feature, will be updated
-    q_max_sent_length,
-    a_max_sent_length,
     numpy_randg,              # numpy random number generator
     x_q,                      # input symbols
     x_q_overlap,
@@ -109,12 +108,12 @@ def deep_qa_net(batch_size,
   q_filter_widths = [5]
   a_filter_widths = [5]
   ## question conv
-  nnet_q = conv_layer(batch_size, q_max_sent_length, 
+  nnet_q = conv_layer(batch_size, 
                       embedding, embedding_overlap, numpy_randg, 
                       x_q, x_q_overlap,
                       q_filter_widths, 100, 1, 1)
   ## answer conv
-  nnet_a = conv_layer(batch_size, a_max_sent_length, 
+  nnet_a = conv_layer(batch_size, 
                       embedding, embedding_overlap, numpy_randg, 
                       x_a, x_a_overlap,
                       a_filter_widths, 100, 1, 1)
@@ -156,31 +155,53 @@ def to1hot(data):
         b[i, j, data[i, j]] = 1.0
   return b
 
-def load_data(input_dir, prefix):
-  q = numpy.load(os.path.join(input_dir, prefix + '.questions.npy')).astype(numpy.float32)
-  a = numpy.load(os.path.join(input_dir, prefix + '.answers.npy')).astype(numpy.float32)
-  q_overlap = numpy.load(os.path.join(input_dir, prefix + '.q_overlap_indices.npy')).astype(numpy.float32)
-  a_overlap = numpy.load(os.path.join(input_dir, prefix + '.a_overlap_indices.npy')).astype(numpy.float32)
-  y = numpy.load(os.path.join(input_dir, prefix + '.labels.npy')).astype(numpy.float32)
-  qids = numpy.load(os.path.join(input_dir, prefix + '.qids.npy'))
+def load_data(input_dir):
+  q = numpy.load(os.path.join(input_dir, 'questions.npy')).astype(numpy.float32)
+  a = numpy.load(os.path.join(input_dir, 'answers.npy')).astype(numpy.float32)
+  q_overlap = numpy.load(os.path.join(input_dir, 'q_overlap_indices.npy')).astype(numpy.float32)
+  a_overlap = numpy.load(os.path.join(input_dir, 'a_overlap_indices.npy')).astype(numpy.float32)
+  y = numpy.load(os.path.join(input_dir, 'labels.npy')).astype(numpy.float32)
+  qids = numpy.load(os.path.join(input_dir, 'qids.npy'))
   return (q, a, q_overlap, a_overlap, y, qids)
 
 def main(argv):
-  if (len(argv) != 4):
-    print('usage: run_nnet.py inputdir outputdir train/test/all')
+  parser = argparse.ArgumentParser()
+  parser.add_argument('mode', type=str, help='train/test/all')
+  parser.add_argument('-t', '--train', help='training set dir')
+  parser.add_argument('-d', '--validation', help='validation set dir')
+  parser.add_argument('-e', '--test', help='test set dir')
+  parser.add_argument('-o', '--output', help='output result file')
+  parser.add_argument('-b', '--embed', help='embedding dir')
+  parser.add_argument('-m', '--model', help='model parameter file')
+  args = parser.parse_args()
+  
+  do_train = (args.mode == 'train' or args.mode == 'all')
+  do_test = (args.mode == 'test' or args.mode == 'all')
+  if (not do_train) and (not do_test):
+    print('mode must be train, test or all')
     exit(1)
-  input_dir = argv[1]
-  output_dir = argv[2]
-  do_train = (argv[3] == 'train' or argv[3] == 'all')
-  do_test = (argv[3] == 'test' or argv[3] == 'all')
- 
+  if (do_train and (not args.train)):
+    print('training set must be specified')
+    exit(1)
+  if (do_train and (not args.validation)):
+    print('validation set must be specified')
+    exit(1)
+  if (do_test and (not args.test)):
+    print('test set must be specified')
+    exit(1)
+  if (do_test and (not args.output)):
+    print('result file must be specified')
+    exit(1)
+  if (do_train or do_test) and (not args.embed):
+    print('embedding file must be specified')
+    exit(1)
+  if (do_train or do_test) and (not args.model):
+    print('model file must be specified')
+    exit(1)
+
   # init random seed
   numpy.random.seed(100)
   numpy_rng = numpy.random.RandomState(123)
-
-  # prepare output dir
-  if not os.path.exists(output_dir):
-    os.makedirs(output_dir)
 
   x_q = T.matrix('q')
   x_a = T.matrix('a')
@@ -203,11 +224,11 @@ def main(argv):
     print 'learning_rate', learning_rate
     print 'max_norm', max_norm
     # load data
-    print "Running training with the data in {}".format(input_dir)
-    q_train, a_train, q_overlap_train, a_overlap_train, y_train, qids_train = load_data(input_dir, 'train')
+    print "Running training with train={}, validation={}".format(args.train, args.validation)
+    q_train, a_train, q_overlap_train, a_overlap_train, y_train, qids_train = load_data(args.train)
     q_max_sent_size = q_train.shape[1]
     a_max_sent_size = a_train.shape[1]
-    q_dev, a_dev, q_overlap_dev, a_overlap_dev, y_dev, qids_dev = load_data(input_dir, 'dev')
+    q_dev, a_dev, q_overlap_dev, a_overlap_dev, y_dev, qids_dev = load_data(args.validation)
     dev_size = q_dev.shape[0]
     sample_idx = numpy.arange(dev_size)
     numpy.random.shuffle(sample_idx)
@@ -216,22 +237,18 @@ def main(argv):
     a_dev = a_dev[sample_idx]
     y_dev = y_dev[sample_idx]
     qids_dev = qids_dev[sample_idx]
+    q_overlap_dev = q_overlap_dev[sample_idx]
+    a_overlap_dev = a_overlap_dev[sample_idx]  
     print 'y_train', numpy.unique(y_train, return_counts=True)
     print 'y_dev', numpy.unique(y_dev, return_counts=True)
     print 'q_train', q_train.shape
     print 'q_dev', q_dev.shape
     print 'a_train', a_train.shape
     print 'a_dev', a_dev.shape
-    print 'max_sent_size', numpy.max(a_train)
-    print 'min_sent_size', numpy.min(a_train) 
-    q_overlap_dev = q_overlap_dev[sample_idx]
-    a_overlap_dev = a_overlap_dev[sample_idx]  
-    dummy_word_id = numpy.max(a_overlap_train) 
   if (do_test):
-    q_test, a_test, q_overlap_test, a_overlap_test, y_test, qids_test = load_data(input_dir, 'test')
+    q_test, a_test, q_overlap_test, a_overlap_test, y_test, qids_test = load_data(args.test)
     q_max_sent_size = q_test.shape[1]
     a_max_sent_size = a_test.shape[1]
-    dummy_word_id = numpy.max(a_overlap_test)
     
   # number of dimmension for overlapping feature (the 0,1,2 features)
   ndim = 5
@@ -241,7 +258,7 @@ def main(argv):
   vocab_emb_overlap = vocab_emb_overlap.astype(numpy.float32)
 
   # Load word2vec embeddings
-  fname = os.path.join(input_dir, 'emb.npy')
+  fname = os.path.join(args.embed, 'emb.npy')
   print "Loading word embeddings from", fname
   vocab_emb = numpy.load(fname)
   print "Word embedding matrix size:", vocab_emb.shape
@@ -254,14 +271,14 @@ def main(argv):
 
   # build network
   nnet = deep_qa_net(batch_size, vocab_emb, vocab_emb_overlap, 
-                            q_max_sent_size, a_max_sent_size, numpy_rng,
+                            numpy_rng,
                             x_q, x_q_overlap,
                             x_a, x_a_overlap,
-                            100, 1, 1, 1, 0.5)
-  if do_train:
-    nnet_fname = os.path.join(output_dir, 'nnet.dat')
-    print "Saving to", nnet_fname
-    cPickle.dump([nnet], open(nnet_fname, 'wb'), protocol=cPickle.HIGHEST_PROTOCOL)
+                            n_conv_kernels, 1, 1, 1, 0.5)
+  #if do_train:
+  #  nnet_fname = os.path.join(output_dir, 'nnet.dat')
+  #  print "Saving to", nnet_fname
+  #  cPickle.dump([nnet], open(nnet_fname, 'wb'), protocol=cPickle.HIGHEST_PROTOCOL)
 
   print nnet
   params = nnet.params
@@ -367,7 +384,7 @@ def main(argv):
   if (do_train):
     train_set_iterator = sgd_trainer.MiniBatchIteratorConstantBatchSize(numpy_rng, [q_train, a_train, q_overlap_train, a_overlap_train, y_train], batch_size=batch_size, randomize=True)
     dev_set_iterator = sgd_trainer.MiniBatchIteratorConstantBatchSize(numpy_rng, [q_dev, a_dev, q_overlap_dev, a_overlap_dev, y_dev], batch_size=batch_size, randomize=False)
-    print "Zero out dummy word:", ZEROUT_DUMMY_WORD
+    #print "Zero out dummy word:", ZEROUT_DUMMY_WORD
     #if ZEROUT_DUMMY_WORD:
     #  W_emb_list = [w for w in params if w.name == 'W_emb']
     #  zerout_dummy_word = theano.function([], updates=[(W, T.set_subtensor(W[-1:], 0.)) for W in W_emb_list])
@@ -411,20 +428,19 @@ def main(argv):
           break
 
         print('epoch {} took {:.4f} seconds'.format(epoch, time.time() - timer))
-        param_fname = os.path.join(output_dir, 'parameters_epoch={}_acc={}.dat'.format(epoch, best_dev_acc))
-        cPickle.dump(best_params, open(param_fname, 'wb'), protocol=cPickle.HIGHEST_PROTOCOL)
+        cPickle.dump(best_params, open(args.model, 'wb'), protocol=cPickle.HIGHEST_PROTOCOL)
         epoch += 1
         no_best_dev_update += 1
     print('Training took: {:.4f} seconds'.format(time.time() - timer_train))
 
-  param_fname = os.path.join(output_dir, 'best_params.dat')
   if (do_train):
     for i, param in enumerate(best_params):
       params[i].set_value(param, borrow=True)
-    cPickle.dump(best_params, open(param_fname, 'wb'), protocol=cPickle.HIGHEST_PROTOCOL)
-    print('dumpping params to {}'.format(param_fname))
+    print('dumpping params to {}'.format(args.model))
+    cPickle.dump(best_params, open(args.model, 'wb'), protocol=cPickle.HIGHEST_PROTOCOL)
   if (do_test):
-    best_params = cPickle.load(open(param_fname, 'rb'))
+    print('doing testing...')
+    best_params = cPickle.load(open(args.model, 'rb'))
     for i, param in enumerate(best_params):
       params[i].set_value(param, borrow=True)    
     test_set_iterator = sgd_trainer.MiniBatchIteratorConstantBatchSize(numpy_rng, [q_test, a_test, q_overlap_test, a_overlap_test, y_test], batch_size=batch_size, randomize=False)
@@ -435,8 +451,7 @@ def main(argv):
     print('Testing took: {:.4f} seconds'.format(time.time() - timer_test))
     auc = metrics.roc_auc_score(y_test, y_pred_test)
     print("AUC on test data: {}".format(auc))
-    test_acc = map_score(qids_test, y_test, y_pred_test) * 100 
-    print "Running trec_eval script..."
+    #test_acc = map_score(qids_test, y_test, y_pred_test) * 100 
     N = len(y_pred_test)
     df_submission = pd.DataFrame(index=numpy.arange(N), columns=['qid', 'iter', 'docno', 'rank', 'sim', 'run_id'])
     df_submission['qid'] = qids_test
@@ -445,14 +460,15 @@ def main(argv):
     df_submission['rank'] = 0
     df_submission['sim'] = y_pred_test
     df_submission['run_id'] = 'nnet'
-    df_submission.to_csv(os.path.join(output_dir, 'submission.txt'), header=False, index=False, sep=' ')
+    df_submission.to_csv(args.output, header=False, index=False, sep=' ')
     df_gold = pd.DataFrame(index=numpy.arange(N), columns=['qid', 'iter', 'docno', 'rel'])
     df_gold['qid'] = qids_test
     df_gold['iter'] = 0
     df_gold['docno'] = numpy.arange(N)
     df_gold['rel'] = y_test
-    df_gold.to_csv(os.path.join(output_dir, 'gold.txt'), header=False, index=False, sep=' ')
-    subprocess.call("/bin/sh run_eval.sh '{}'".format(output_dir), shell=True)
+    df_gold.to_csv(args.output + '.gold', header=False, index=False, sep=' ')
+    print "Running trec_eval script..."
+    subprocess.call("/bin/sh run_eval.sh '{}' '{}'".format(args.output, args.output + '.gold'), shell=True)
 
 if __name__ == '__main__':
   main(sys.argv)

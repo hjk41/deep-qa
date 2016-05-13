@@ -15,7 +15,6 @@ import ptvsd
 #ptvsd.wait_for_attach()
 
 max_sent_size = 70
-embedding = 'embeddings/aquaint+wiki.txt.gz.ndim=50'
 '''
 UNKNOW_WORD_IDX = len(vocab)
 EMPTY_WORD_IDX = len(vocab + 1)
@@ -339,20 +338,20 @@ def convert_dataset(qids, questions, answers, labels,
 
   print('dumping files')
   # question ids for each sample
-  np.save(prefix + '.qids.npy', qids)
+  np.save(os.path.join(prefix, 'qids.npy'), qids)
   # questions of each sample, represented by word indices
-  np.save(prefix + '.questions.npy', questions_idx)
+  np.save(os.path.join(prefix, 'questions.npy'), questions_idx)
   # answers of each sample, represented by word indices
-  np.save(prefix + '.answers.npy', answers_idx)
+  np.save(os.path.join(prefix, 'answers.npy'), answers_idx)
   # labels of each sample, represented as float32
-  np.save(prefix + '.labels.npy', labels)
+  np.save(os.path.join(prefix, 'labels.npy'), labels)
   # overlap features, including features with and without stoplist
-  np.save(prefix + '.overlap_feats.npy', overlap_feats)
-  np.save(prefix + '.q_overlap_indices.npy', q_overlap_indices)
-  np.save(prefix + '.a_overlap_indices.npy', a_overlap_indices)
-  np.save(prefix + '.q_tfidf.npy', q_tfidf)
-  np.save(prefix + '.a_tfidf.npy', a_tfidf)
-  with open(prefix + '.nonembed.txt', 'w') as f:
+  np.save(os.path.join(prefix, 'overlap_feats.npy'), overlap_feats)
+  np.save(os.path.join(prefix, 'q_overlap_indices.npy'), q_overlap_indices)
+  np.save(os.path.join(prefix, 'a_overlap_indices.npy'), a_overlap_indices)
+  np.save(os.path.join(prefix, 'q_tfidf.npy'), q_tfidf)
+  np.save(os.path.join(prefix, 'a_tfidf.npy'), a_tfidf)
+  with open(os.path.join(prefix, 'nonembed.txt'), 'w') as f:
     for w in unknown_words:
       f.write('{}\n'.format(w))
 
@@ -413,23 +412,23 @@ if __name__ == '__main__':
   The input can be xml format or tsv format
   '''
   if (len(sys.argv) < 4):
-    print("usage: parse.py inputfile outputdir fileprefix")
-    print("    example: parse.py hb03.tsv HB03 train")
+    print("usage: parse.py inputfile outputdir embeddir")
+    print("    example: parse.py hb03.tsv HB03 embeddings/word2vec")
     exit(1)
   
   # parse command line arguments
   inputfile = sys.argv[1]
   outputdir = sys.argv[2]
-  fileprefix = sys.argv[3]
-  outputprefix = os.path.join(outputdir, fileprefix)
+  embeddingdir = sys.argv[3]
 
   # compose output file names
-  print("using:\n"
+  print("\n================================\n"
+      "using:\n"
       "    inputfile={}\n"
       "will output:\n"
-      "    {}.(qids, questions, answers, labels, overlap).npy\n"
-      "words with no embedding will be stored in {}.nonembed.txt\n"
-      " ".format(inputfile, outputprefix, outputprefix))
+      "    {}/(qids, questions, answers, labels, overlap).npy\n"
+      "words with no embedding will be stored in {}/nonembed.txt\n"
+      "================================".format(inputfile, outputdir, outputdir))
 
   if not os.path.exists(outputdir):
     os.makedirs(outputdir)
@@ -447,12 +446,9 @@ if __name__ == '__main__':
   word2dfs = compute_dfs(docs)
 
   # load embedding
-  print('loading embedding {}'.format(embedding))
-  word2id = cPickle.load(open(embedding + '.vocab.pickle'))
+  print('loading embedding from {}'.format(embeddingdir))
+  word2id = cPickle.load(open(os.path.join(embeddingdir, 'vocab.pickle')))
   unknown_word_id = len(word2id)
-  local_emb_file = os.path.join(outputdir, 'emb.npy')
-  if (not os.path.exists(local_emb_file)):
-    shutil.copy(embedding + '.npy', local_emb_file)
 
   # Convert datasets
   convert_dataset(qids = qids, 
@@ -463,4 +459,4 @@ if __name__ == '__main__':
       word2dfs = word2dfs,
       word2id = word2id,
       unknown_word_idx = unknown_word_id,
-      prefix = outputprefix)
+      prefix = outputdir)
