@@ -28,7 +28,7 @@ import ptvsd
 # theano.config.exception_verbosity = 'high'
 
 n_epochs = 100
-batch_size = 100
+batch_size = 500
 n_dev_batch = 200
 n_iter_per_val = 100
 n_conv_kernels = 100

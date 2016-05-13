@@ -441,7 +441,7 @@ if __name__ == '__main__':
 
   # compute word frequencies
   print('loading input file {}'.format(inputfile))
-  unique_questions, qids, questions, answers, labels = load_data(inputfile, resample = False)
+  unique_questions, qids, questions, answers, labels = load_data(inputfile, skip_long_sent=False, resample = False)
   docs = answers + unique_questions
   word2dfs = compute_dfs(docs)
 
