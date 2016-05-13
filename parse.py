@@ -14,7 +14,7 @@ import ptvsd
 #ptvsd.enable_attach(secret='secret')
 #ptvsd.wait_for_attach()
 
-max_sent_size = 70
+max_sent_size = 80
 '''
 UNKNOW_WORD_IDX = len(vocab)
 EMPTY_WORD_IDX = len(vocab + 1)
