@@ -62,7 +62,7 @@ def load_xml(fname, skip_long_sent):
       qids.append(qid)
   # print sorted(qid2num_answers.items(), key=lambda x: float(x[0]))
   print 'num_skipped: ', num_skipped
-  return question2qid.keys(), qids, questions, answers, labels
+  return question2qid.keys(), qids, questions, answers, labels, []
 
 def passage2list(psg):
   '''
@@ -105,18 +105,16 @@ def passage2list(psg):
     list.append(psg[wordStart:pos])
   return list    
 
-def load_tsv(fname, skip_long_sent, resample):
-  lines = open(fname).readlines()
+def load_tsv(fname, skip_long_sent=False):
   # skip tsv header
   #header = lines.pop(0)
   #print 'fields: ', header
   qids, questions, answers, labels = [], [], [], []
+  lineids = []
   curr_qid = 0
   num_skipped = 0
   question2qid = {}
-  good_pairs = []
-  bad_pairs = []
-  for i, line in enumerate(lines):
+  for i, line in enumerate(open(fname)):
     line = line.strip().lower()
     # Query   Url     PassageID       Passage Rating1 Rating2
     qupprr=line.split('\t')
@@ -126,22 +124,6 @@ def load_tsv(fname, skip_long_sent, resample):
       exit(1)
     q = qupprr[0].lower()
     if not q in question2qid:
-      if (resample):
-        np.random.shuffle(bad_pairs)
-        bad_pairs = bad_pairs[:len(good_pairs) * 2]
-      if (len(good_pairs) != 0):  # get rid of non-triggering questions
-        for p in good_pairs:
-          labels.append(p[0])
-          answers.append(p[1])
-          questions.append(p[2])
-          qids.append(p[3])
-        for p in bad_pairs:
-          labels.append(p[0])
-          answers.append(p[1])
-          questions.append(p[2])
-          qids.append(p[3])
-      good_pairs = []
-      bad_pairs = []
       question2qid[q] = curr_qid
       qid = curr_qid
       curr_qid += 1
@@ -163,21 +145,18 @@ def load_tsv(fname, skip_long_sent, resample):
       continue    ## get rid of answers that we are not sure of
     else:
       label = 0.0
-    if (label > 0):
-      good_pairs.append((label, answer, question, qid))
-    else:
-      bad_pairs.append((label, answer, question, qid))
-    #labels.append(label)
-    #answers.append(answer)
-    #questions.append(question)
-    #qids.append(qid)
-  return question2qid.keys(), qids, questions, answers, labels
+    labels.append(label)
+    answers.append(answer)
+    questions.append(question)
+    qids.append(qid)
+    lineids.append(i)
+  return question2qid.keys(), qids, questions, answers, labels, lineids
 
 def load_data(fname, skip_long_sent = True, resample = True):
   basename = os.path.basename(fname)
   name, ext = os.path.splitext(basename)
   if (ext == '.tsv'):
-    return load_tsv(fname, skip_long_sent, resample)
+    return load_tsv(fname, skip_long_sent)
   else:
     return load_xml(fname, skip_long_sent)  
 
@@ -303,7 +282,7 @@ def calculate_tfidf(data, word2dfs, max_sent_length):
   data_tfidf = np.array(data_tfidf).astype('float32')
   return data_tfidf
 
-def convert_dataset(qids, questions, answers, labels, 
+def convert_dataset(qids, questions, answers, labels, lineids,
     stoplist, 
     word2dfs,
     word2id,
@@ -351,6 +330,7 @@ def convert_dataset(qids, questions, answers, labels,
   np.save(os.path.join(prefix, 'a_overlap_indices.npy'), a_overlap_indices)
   np.save(os.path.join(prefix, 'q_tfidf.npy'), q_tfidf)
   np.save(os.path.join(prefix, 'a_tfidf.npy'), a_tfidf)
+  np.save(os.path.join(prefix, 'lineids.npy'), np.array(lineids))
   with open(os.path.join(prefix, 'nonembed.txt'), 'w') as f:
     for w in unknown_words:
       f.write('{}\n'.format(w))
@@ -441,7 +421,7 @@ if __name__ == '__main__':
 
   # compute word frequencies
   print('loading input file {}'.format(inputfile))
-  unique_questions, qids, questions, answers, labels = load_data(inputfile, skip_long_sent=False, resample = False)
+  unique_questions, qids, questions, answers, labels, lineids = load_data(inputfile, skip_long_sent=False, resample = False)
   docs = answers + unique_questions
   word2dfs = compute_dfs(docs)
 
@@ -455,6 +435,7 @@ if __name__ == '__main__':
       questions = questions,
       answers = answers,
       labels = labels,
+      lineids = lineids,
       stoplist = stoplist,
       word2dfs = word2dfs,
       word2id = word2id,

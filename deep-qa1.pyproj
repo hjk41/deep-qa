@@ -35,9 +35,6 @@
     <Compile Include="submission2TSV.py">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="tsv2xml.py">
-      <SubType>Code</SubType>
-    </Compile>
     <Compile Include="utils.py" />
   </ItemGroup>
   <ItemGroup>

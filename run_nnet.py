@@ -162,7 +162,8 @@ def load_data(input_dir):
   a_overlap = numpy.load(os.path.join(input_dir, 'a_overlap_indices.npy')).astype(numpy.float32)
   y = numpy.load(os.path.join(input_dir, 'labels.npy')).astype(numpy.float32)
   qids = numpy.load(os.path.join(input_dir, 'qids.npy'))
-  return (q, a, q_overlap, a_overlap, y, qids)
+  lineids = numpy.load(os.path.join(input_dir, 'lineids.npy'))
+  return (q, a, q_overlap, a_overlap, y, qids, lineids)
 
 def main(argv):
   parser = argparse.ArgumentParser()
@@ -235,10 +236,10 @@ def main(argv):
     print 'max_norm', max_norm
     # load data
     print "Running training with train={}, validation={}".format(args.train, args.validation)
-    q_train, a_train, q_overlap_train, a_overlap_train, y_train, qids_train = load_data(args.train)
+    q_train, a_train, q_overlap_train, a_overlap_train, y_train, qids_train, _ = load_data(args.train)
     q_max_sent_size = q_train.shape[1]
     a_max_sent_size = a_train.shape[1]
-    q_dev, a_dev, q_overlap_dev, a_overlap_dev, y_dev, qids_dev = load_data(args.validation)
+    q_dev, a_dev, q_overlap_dev, a_overlap_dev, y_dev, qids_dev, _ = load_data(args.validation)
     dev_size = q_dev.shape[0]
     sample_idx = numpy.arange(dev_size)
     numpy.random.shuffle(sample_idx)
@@ -256,7 +257,7 @@ def main(argv):
     print 'a_train', a_train.shape
     print 'a_dev', a_dev.shape
   if (do_test):
-    q_test, a_test, q_overlap_test, a_overlap_test, y_test, qids_test = load_data(args.test)
+    q_test, a_test, q_overlap_test, a_overlap_test, y_test, qids_test, lineids_test = load_data(args.test)
     q_max_sent_size = q_test.shape[1]
     a_max_sent_size = a_test.shape[1]
     
@@ -469,7 +470,10 @@ def main(argv):
     df_submission['docno'] = numpy.arange(N)
     df_submission['rank'] = 0
     df_submission['sim'] = y_pred_test
-    df_submission['run_id'] = 'nnet'
+    if (not lineids_test):
+      df_submission['run_id'] = 'nnet'
+    else:
+      df_submission['run_id'] = lineids_test
     df_submission.to_csv(args.output, header=False, index=False, sep=' ')
     df_gold = pd.DataFrame(index=numpy.arange(N), columns=['qid', 'iter', 'docno', 'rel'])
     df_gold['qid'] = qids_test

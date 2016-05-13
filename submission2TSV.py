@@ -1,9 +1,13 @@
-import alphabet
+﻿import alphabet
 import cPickle
 import os
 import sys
 import numpy as np
 import pandas as pd
+
+import ptvsd
+#ptvsd.enable_attach(secret='secret')
+#ptvsd.wait_for_attach()
 
 def load_tsv(fname):
   questions, answers, urls, labels = [], [], [], []
@@ -45,17 +49,18 @@ def main(argv):
   for i, r in enumerate(submission.iterrows()):
     qid = r['qid']
     score = r['sim']
+    lineid = r['run_id']
     if (not last_qid):
       last_qid = r['qid']
     if (qid != last_qid):
       # a new query, so let's dump last
       rfile.write('{}\t{}\t{}\n'.format(questions[best_row], urls[best_row], answers[best_row]))
-      best_row = i
+      best_row = lineid
       best_score = score
     else:
       if (best_score < score):
         best_score = score
-        best_row = i
+        best_row = lineid
     last_qid = qid
   rfile.close()
 
