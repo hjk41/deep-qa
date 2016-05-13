@@ -61,11 +61,12 @@ def conv_layer(batch_size,
   # now the output dim is embedding+embedding_overlap, currently 50+5
   lookup_table = nn_layers.ParallelLookupTable(layers=[lookup_table_words, lookup_table_overlap])
   ndim = embedding.shape[1] + embedding_overlap.shape[1]
-  input_shape = (batch_size, n_input_channel, max_sent_length + 2*(max(filter_widths)-1), ndim)
+  #input_shape = (batch_size, n_input_channel, max_sent_length + 2*(max(filter_widths)-1), ndim)
   conv_layers = []
   for filter_width in filter_widths:
     filter_shape = (n_conv_kern, n_input_channel, filter_width, ndim)
-    conv = nn_layers.Conv2dLayer(rng=numpy_randg, filter_shape=filter_shape, input_shape=input_shape)
+    #conv = nn_layers.Conv2dLayer(rng=numpy_randg, filter_shape=filter_shape, input_shape=input_shape)
+    conv = nn_layers.Conv2dLayer(rng=numpy_randg, filter_shape=filter_shape)
     non_linearity = nn_layers.NonLinearityLayer(b_size=filter_shape[0], activation=T.tanh)
     pooling = nn_layers.KMaxPoolLayer(k_max=pooling_k_max)
     conv2dNonLinearMaxPool = nn_layers.FeedForwardNet(layers=[conv, non_linearity, pooling])

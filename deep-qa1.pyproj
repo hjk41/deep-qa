@@ -27,9 +27,9 @@
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="extract_embeddings.py" />
-    <Compile Include="newparse.py" />
     <Compile Include="nn_layers.py" />
-    <Compile Include="oldparse.py" />
+    <Compile Include="parse.py" />
+    <Compile Include="parse_embedding.py" />
     <Compile Include="run_nnet.py" />
     <Compile Include="sgd_trainer.py" />
     <Compile Include="submission2TSV.py">

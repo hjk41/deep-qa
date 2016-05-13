@@ -290,7 +290,7 @@ def convert2indices(data, alphabet, unknown_word_idx, empty_word_idx, max_sent_l
           unknown_words.add(token)
       ex[i] = idx
     data_idx.append(ex)
-  data_idx = np.array(data_idx).astype('int32')
+  data_idx = np.array(data_idx, dtype='int32')
   return (data_idx, unknown_words)
 
 def calculate_tfidf(data, word2dfs, max_sent_length):
