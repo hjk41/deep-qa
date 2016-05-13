@@ -60,13 +60,14 @@ def main(argv):
   rfile.close()
 
   # dump file for analysis
-  print('dumping file for analysis')
+  result_analysis = result_file + '.analysis'
+  print('dumping file for analysis to {}'.format(result_analysis))
   result = pd.DataFrame(columns=['label', 'score', 'q', 'a'])
   result['label'] = labels
   result['score'] = submission['sim']
   result['q'] = questions
   result['a'] = answers
-  result.to_csv(result_file, sep='\t')  
+  result.to_csv(result_analysis, sep='\t')
 
 if __name__ == '__main__':
   main(sys.argv)
