@@ -199,6 +199,16 @@ def main(argv):
     print('model file must be specified')
     exit(1)
 
+  # prepare output dir
+  if (args.model):
+    dir, _ = os.path.split(args.model)
+    if (not os.path.exists(dir)):
+      os.makedirs(dir)
+  if (args.output):
+    dir, _ = os.path.split(args.output)
+    if (not os.path.exists(dir)):
+      os.makedirs(dir)
+
   # init random seed
   numpy.random.seed(100)
   numpy_rng = numpy.random.RandomState(123)
