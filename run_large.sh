@@ -5,13 +5,13 @@
 ### First, we need to parse the raw data into consumable format
 ## We need three data: train, validation and test.
 ## XML and TSV files are both supported.
-train_file=jacana-qa-naacl2013-data-results/train.xml
-validation_file=jacana-qa-naacl2013-data-results/dev.xml
-test_file=jacana-qa-naacl2013-data-results/test.xml
+train_file=~/qa/data/relevance/7kTrain.tsv
+validation_file=~/qa/data/relevance/hb03.tsv
+test_file=~/qa/data/relevance/hb06.tsv
 
-train_dir=parseddata/trec/train
-validation_dir=parseddata/trec/validation
-test_dir=parseddata/trec/test
+train_dir=parseddata/relevance/7k
+validation_dir=parseddata/relevance/hb03
+test_dir=parseddata/relevance/hb06
 
 ## We need a embedding file, processed with parse_embeddings.py
 embedding=embeddings/word2vec
