@@ -6,6 +6,7 @@ import subprocess
 import sys
 import string
 import shutil
+import argparse
 from collections import defaultdict
 from utils import load_bin_vec
 
@@ -105,10 +106,11 @@ def passage2list(psg):
     list.append(psg[wordStart:pos])
   return list    
 
-def load_tsv(fname, skip_long_sent=False):
+def load_tsv(fname, skip_long_sent=False, treat_good='remove'):
   # skip tsv header
   #header = lines.pop(0)
   #print 'fields: ', header
+  assert treat_good in ['remove', 'positive', 'negative']
   qids, questions, answers, labels = [], [], [], []
   lineids = []
   curr_qid = 0
@@ -141,8 +143,12 @@ def load_tsv(fname, skip_long_sent=False):
     if r2 == 'perfect':
       label = 1.0
     elif r2 == 'good':
-      label = 0.0
-      continue    ## get rid of answers that we are not sure of
+      if (treat_good == 'remove'):
+        continue
+      elif (treat_good == 'positive'):
+        label = 1.0
+      else: # negative
+        label = 0.0
     else:
       label = 0.0
     labels.append(label)
@@ -152,11 +158,11 @@ def load_tsv(fname, skip_long_sent=False):
     lineids.append(i)
   return question2qid.keys(), qids, questions, answers, labels, lineids
 
-def load_data(fname, skip_long_sent = True, resample = True):
+def load_data(fname, skip_long_sent = True, resample = True, treat_good = 'remove'):
   basename = os.path.basename(fname)
   name, ext = os.path.splitext(basename)
   if (ext == '.tsv'):
-    return load_tsv(fname, skip_long_sent)
+    return load_tsv(fname, skip_long_sent, treat_good)
   else:
     return load_xml(fname, skip_long_sent)  
 
@@ -391,15 +397,20 @@ if __name__ == '__main__':
 
   The input can be xml format or tsv format
   '''
-  if (len(sys.argv) < 4):
-    print("usage: parse.py inputfile outputdir embeddir")
-    print("    example: parse.py hb03.tsv HB03 embeddings/word2vec")
-    exit(1)
+  parser = argparse.ArgumentParser()
+  parser.add_argument('-i', '--input', help='input file', required=True)
+  parser.add_argument('-o', '--output', help='output dir', required=True)
+  parser.add_argument('-e', '--embed', help='embedding dir', required=True)
+  parser.add_argument('-r', '--resample', type=bool, default=False, help='whether to do resampling, 1/0')
+  parser.add_argument('-g', '--good', type=str, default='remove', choices=['remove', 'positive', 'negative'], help='how to treat good examples, remove/positive/negative')
+  args = parser.parse_args()
   
-  # parse command line arguments
-  inputfile = sys.argv[1]
-  outputdir = sys.argv[2]
-  embeddingdir = sys.argv[3]
+  inputfile = args.input
+  outputdir = args.output
+  embeddingdir = args.embed
+  resample = args.resample
+  treat_good = args.good
+
 
   # compose output file names
   print("\n================================\n"
@@ -421,7 +432,7 @@ if __name__ == '__main__':
 
   # compute word frequencies
   print('loading input file {}'.format(inputfile))
-  unique_questions, qids, questions, answers, labels, lineids = load_data(inputfile, skip_long_sent=False, resample = False)
+  unique_questions, qids, questions, answers, labels, lineids = load_data(inputfile, skip_long_sent=False, resample = resample, treat_good=treat_good)
   docs = answers + unique_questions
   word2dfs = compute_dfs(docs)
 

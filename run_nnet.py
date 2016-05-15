@@ -470,7 +470,8 @@ def main(argv):
     df_submission['docno'] = numpy.arange(N)
     df_submission['rank'] = 0
     df_submission['sim'] = y_pred_test
-    if (not lineids_test):
+    if (len(lineids_test) != len(qids_test)):
+      print('test lineids size={}, using dummy lineids'.format(len(lineids_test)))
       df_submission['run_id'] = 'nnet'
     else:
       df_submission['run_id'] = lineids_test
