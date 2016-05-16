@@ -46,12 +46,12 @@ def main(argv):
   best_row = 0
   best_score = 0
   last_qid = None
-  for i, r in enumerate(submission.iterrows()):
-    qid = r['qid']
-    score = r['sim']
-    lineid = r['run_id']
+  for i, r in enumerate(submission.itertuples()):
+    qid = r.qid
+    score = r.sim
+    lineid = r.run_id
     if (not last_qid):
-      last_qid = r['qid']
+      last_qid = qid
     if (qid != last_qid):
       # a new query, so let's dump last
       rfile.write('{}\t{}\t{}\n'.format(questions[best_row], urls[best_row], answers[best_row]))
@@ -62,6 +62,7 @@ def main(argv):
         best_score = score
         best_row = lineid
     last_qid = qid
+  rfile.write('{}\t{}\t{}\n'.format(questions[best_row], urls[best_row], answers[best_row]))
   rfile.close()
 
   # dump file for analysis
