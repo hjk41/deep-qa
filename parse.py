@@ -121,8 +121,8 @@ def load_tsv(fname, skip_long_sent=False, treat_good='remove'):
     # Query   Url     PassageID       Passage Rating1 Rating2
     qupprr=line.split('\t')
     if len(qupprr) != 6:
-      print('error parsing line', i)
-      print('line:\n', line)
+      print('error parsing line {}'.format(i))
+      print('line:{}\n'.format(line))
       exit(1)
     q = qupprr[0].lower()
     if not q in question2qid:

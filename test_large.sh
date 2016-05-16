@@ -5,9 +5,8 @@
 ### First, we need to parse the raw data into consumable format
 ## We need three data: train, validation and test.
 ## XML and TSV files are both supported.
-test_file=~/qa/data/relevance/hb06.tsv
-
-test_dir=parseddata/relevance/hb06
+test_file=~/qa/data/relevance/superdotest_converted.tsv
+test_dir=parseddata/relevance/superdo
 
 ## We need a embedding file, processed with parse_embeddings.py
 embedding=embeddings/word2vec
@@ -30,5 +29,5 @@ python run_nnet.py test --test $test_dir --output $output_file --embed $embeddin
 ## The output consists of a lot of ids, which is for trec_eval.
 ## The submssion2TSV.py script will convert it to include original
 ## query and answer texts so we can analyze it.
-readable_result_file=exp.out/relevance/hb06.tsv
+readable_result_file=exp.out/relevance/superdo.tsv
 python submission2TSV.py $output_file $test_file $readable_result_file
