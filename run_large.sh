@@ -17,9 +17,9 @@ test_dir=parseddata/relevance/hb06
 embedding=embeddings/word2vec
 ## Each file will be parsed and will generate several files, so we need
 ## to specify a directory to store the files for each input
-python parse.py $train_file $train_dir $embedding
-python parse.py $validation_file $validation_dir $embedding
-python parse.py $test_file $test_dir $embedding
+python parse.py -i $train_file -o $train_dir -e $embedding
+python parse.py -i $validation_file -o $validation_dir -e $embedding
+python parse.py -i $test_file -o $test_dir -e $embedding
 
 ### Now we can run training and testing, we can also do both at
 ##  the same time by specifying 'all' as the first parameter to
