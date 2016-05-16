@@ -23,6 +23,9 @@
   <ItemGroup>
     <Compile Include="alphabet.py" />
     <Compile Include="conv1d.py" />
+    <Compile Include="convertSuperDo.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="deepqa.py">
       <SubType>Code</SubType>
     </Compile>

@@ -105,8 +105,8 @@ def deep_qa_net(batch_size,
   n_conv_kern               int, number of convolution kernels, currently 100
   n_input_channel           int, number of input channel for convolution, currently 1
   '''
-  q_filter_widths = [5]
-  a_filter_widths = [5]
+  q_filter_widths = [3,4,5]
+  a_filter_widths = [3,4,5]
   ## question conv
   nnet_q = conv_layer(batch_size, 
                       embedding, embedding_overlap, numpy_randg, 
@@ -174,6 +174,7 @@ def main(argv):
   parser.add_argument('-o', '--output', help='output result file')
   parser.add_argument('-b', '--embed', help='embedding dir')
   parser.add_argument('-m', '--model', help='model parameter file')
+  parser.add_argument('-c', '--trec', type=bool, default=True, help='whether to run trec eval script')
   args = parser.parse_args()
   
   do_train = (args.mode == 'train' or args.mode == 'all')
@@ -460,8 +461,11 @@ def main(argv):
     print "Number of QA pairs: ", len(q_test)
     y_pred_test = predict_prob_batch(test_set_iterator)
     print('Testing took: {:.4f} seconds'.format(time.time() - timer_test))
-    auc = metrics.roc_auc_score(y_test, y_pred_test)
-    print("AUC on test data: {}".format(auc))
+    try:
+      auc = metrics.roc_auc_score(y_test, y_pred_test)
+      print("AUC on test data: {}".format(auc))
+    except:
+      pass
     #test_acc = map_score(qids_test, y_test, y_pred_test) * 100 
     N = len(y_pred_test)
     df_submission = pd.DataFrame(index=numpy.arange(N), columns=['qid', 'iter', 'docno', 'rank', 'sim', 'run_id'])
@@ -482,8 +486,9 @@ def main(argv):
     df_gold['docno'] = numpy.arange(N)
     df_gold['rel'] = y_test
     df_gold.to_csv(args.output + '.gold', header=False, index=False, sep=' ')
-    print "Running trec_eval script..."
-    subprocess.call("/bin/sh run_eval.sh '{}' '{}'".format(args.output, args.output + '.gold'), shell=True)
+    if (args.trec):
+      print "Running trec_eval script..."
+      subprocess.call("/bin/sh run_eval.sh '{}' '{}'".format(args.output, args.output + '.gold'), shell=True)
 
 if __name__ == '__main__':
   main(sys.argv)
