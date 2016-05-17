@@ -28,7 +28,7 @@ import ptvsd
 # theano.config.exception_verbosity = 'high'
 
 n_epochs = 100
-batch_size = 500
+batch_size = 50
 n_dev_batch = 200
 n_iter_per_val = 100
 n_conv_kernels = 100
@@ -36,8 +36,9 @@ n_outs = 2
 learning_rate = 0.1
 max_norm = 0
 early_stop_epochs = 5
-regularize = False
-pairwise_feature = False
+regularize = True
+pairwise_feature = True
+n_hidden_layers = 1
 
 def conv_layer(batch_size,
     embedding,                # embedding dictionary, from id to vector, static
@@ -119,32 +120,35 @@ def deep_qa_net(batch_size,
                       a_filter_widths, 100, 1, 1)
   q_logistic_n_in = n_conv_kern * len(q_filter_widths) * q_k_max
   a_logistic_n_in = n_conv_kern * len(a_filter_widths) * a_k_max
+  dropout_q = nn_layers.FastDropoutLayer(rng=numpy_randg) 
+  dropout_a = nn_layers.FastDropoutLayer(rng=numpy_randg) 
+  dropout_q.set_input(nnet_q.output) 
+  dropout_a.set_input(nnet_a.output) 
+
+  layers = [nnet_q, nnet_a, dropout_q, dropout_a]
   if (pairwise_feature):
     ## calculate similarity as sim = q.T * M * a
     # output is (conv_out_a, conv_out_q, similarity)
     pairwise_layer = nn_layers.PairwiseNoFeatsLayer(q_in=q_logistic_n_in,
                                                   a_in=a_logistic_n_in)
-    pairwise_layer.set_input((nnet_q.output, nnet_a.output))
-    # hidden layer
-    # input is (conv_out_a, conv_out_q, similarity)
-    n_in = q_logistic_n_in + a_logistic_n_in + 1
-    hidden_layer = nn_layers.LinearLayer(numpy_randg, n_in=n_in, n_out=n_in, activation=T.tanh)
-    hidden_layer.set_input(pairwise_layer.output)
-    hidden_layer2 = nn_layers.LinearLayer(numpy_randg, n_in=n_in, n_out=n_in, activation=T.tanh)
-    hidden_layer2.set_input(hidden_layer.output)
-    classifier = nn_layers.LogisticRegression(n_in=n_in, n_out=n_outs)
-    classifier.set_input(hidden_layer2.output)
-    nnet = nn_layers.FeedForwardNet(layers=[nnet_q, nnet_a, pairwise_layer, hidden_layer, hidden_layer2, classifier],
-                                          name="nnet")
+    pairwise_layer.set_input((dropout_q.output, dropout_a.output))
+    layers.append(pairwise_layer)
+    pairwise_output = pairwise_layer.output
   else:
-    n_in = q_logistic_n_in + a_logistic_n_in
-    hidden_layer = nn_layers.LinearLayer(numpy_randg, n_in=n_in, n_out=n_in, activation=T.tanh)
-    hidden_layer.set_input(T.concatenate([nnet_q.output, nnet_a.output], axis=1))
-    hidden_layer2 = nn_layers.LinearLayer(numpy_randg, n_in=n_in, n_out=n_in, activation=T.tanh)
-    hidden_layer2.set_input(hidden_layer.output)
-    classifier = nn_layers.LogisticRegression(n_in=n_in, n_out=n_outs)
-    classifier.set_input(hidden_layer2.output)
-    nnet = nn_layers.FeedForwardNet(layers=[nnet_q, nnet_a, hidden_layer, hidden_layer2, classifier],
+    pairwise_output = T.concatenate([dropout_q.output, dropout_a.output], axis=1)
+
+  last_output = pairwise_output
+  n_in = q_logistic_n_in + a_logistic_n_in + 1
+  for i in range(n_hidden_layers):
+    hidden_layer = nn_layers.LinearLayer(numpy_randg, n_in=n_in, n_out=n_in, activation=T.tanh)  
+    hidden_layer.set_input(last_output)
+    layers.append(hidden_layer)
+    last_output = hidden_layer.output
+
+  classifier = nn_layers.LogisticRegression(n_in=n_in, n_out=n_outs)
+  classifier.set_input(last_output)
+  layers.append(classifier)
+  nnet = nn_layers.FeedForwardNet(layers=layers,
                                           name="nnet")
   return nnet
 
@@ -238,8 +242,16 @@ def main(argv):
     # load data
     print "Running training with train={}, validation={}".format(args.train, args.validation)
     q_train, a_train, q_overlap_train, a_overlap_train, y_train, qids_train, _ = load_data(args.train)
-    q_max_sent_size = q_train.shape[1]
-    a_max_sent_size = a_train.shape[1]
+    # shuffle training data
+    sample_idx = numpy.arange(q_train.shape[0])
+    numpy.random.shuffle(sample_idx)
+    q_train = q_train[sample_idx]
+    a_train = a_train[sample_idx]
+    q_overlap_train = q_overlap_train[sample_idx]
+    a_overlap_train = a_overlap_train[sample_idx]
+    y_train = y_train[sample_idx]
+    qids_train = qids_train[sample_idx]
+    # subsample the dev set
     q_dev, a_dev, q_overlap_dev, a_overlap_dev, y_dev, qids_dev, _ = load_data(args.validation)
     dev_size = q_dev.shape[0]
     sample_idx = numpy.arange(dev_size)
@@ -396,6 +408,7 @@ def main(argv):
   if (do_train):
     train_set_iterator = sgd_trainer.MiniBatchIteratorConstantBatchSize(numpy_rng, [q_train, a_train, q_overlap_train, a_overlap_train, y_train], batch_size=batch_size, randomize=True)
     dev_set_iterator = sgd_trainer.MiniBatchIteratorConstantBatchSize(numpy_rng, [q_dev, a_dev, q_overlap_dev, a_overlap_dev, y_dev], batch_size=batch_size, randomize=False)
+    train_set_iterator_norandom = sgd_trainer.MiniBatchIteratorConstantBatchSize(numpy_rng, [q_train, a_train, q_overlap_train, a_overlap_train, y_train], batch_size=batch_size, randomize=False)
     #print "Zero out dummy word:", ZEROUT_DUMMY_WORD
     #if ZEROUT_DUMMY_WORD:
     #  W_emb_list = [w for w in params if w.name == 'W_emb']
@@ -434,6 +447,10 @@ def main(argv):
                 best_dev_acc = dev_acc
                 best_params = [numpy.copy(p.get_value(borrow=True)) for p in params]
                 no_best_dev_update = 0
+        # evaluate on training data
+        y_pred_train = predict_prob_batch(train_set_iterator_norandom)
+        train_acc = metrics.roc_auc_score(y_train, y_pred_train) * 100
+        print('epoch: {} train auc: {:.4f}'.format(epoch, train_acc))
 
         if no_best_dev_update >= early_stop_epochs:
           print "Quitting after of no update of the best score on dev set", no_best_dev_update
