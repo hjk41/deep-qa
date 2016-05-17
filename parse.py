@@ -76,6 +76,7 @@ def passage2list(psg):
   isFirstChar = True
   lastIsPunc = False
   n = len(psg)
+  alphabet = 'abcdefghijklmnopqrstuvwxyz1234567890-_'
   while (pos < n):
     c = psg[pos]
     if c == ' ':
@@ -83,7 +84,7 @@ def passage2list(psg):
         list.append(psg[wordStart:pos])
         lastIsPunc = False
         isFirstChar = True
-    elif (c in "!\"#$%&'()*+,./:;<=>?@[\]^`{|}~"):
+    elif (c not in alphabet):
       if isFirstChar:
         wordStart = pos
       elif (not isFirstChar) and (not lastIsPunc):

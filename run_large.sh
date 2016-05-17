@@ -9,9 +9,9 @@ train_file=~/qa/data/relevance/7kTrain.tsv
 validation_file=~/qa/data/relevance/hb03.tsv
 test_file=~/qa/data/relevance/hb06.tsv
 
-train_dir=parseddata/relevance/7k
-validation_dir=parseddata/relevance/hb03
-test_dir=parseddata/relevance/hb06
+train_dir=parseddata/relevance_alphabet_only/7k
+validation_dir=parseddata/relevance_alphabet_only/hb03
+test_dir=parseddata/relevance_alphabet_only/hb06
 
 ## We need a embedding file, processed with parse_embeddings.py
 embedding=embeddings/word2vec
@@ -26,9 +26,9 @@ python parse.py -i $test_file -o $test_dir -e $embedding
 ##  run_nnet.py.
 
 ## output file will store the result for each test sample
-output_file=exp.out/relevance/output.txt
+output_file=exp.out/relevance_alphabet_only/output.txt
 ## model file will store the model parameters
-model_file=exp.out/relevance/model
+model_file=exp.out/relevance_alphabet_only/model
 
 python run_nnet.py train --train $train_dir --validation $validation_dir --embed $embedding --model $model_file
 python run_nnet.py test --test $test_dir --output $output_file --embed $embedding --model $model_file
@@ -37,5 +37,5 @@ python run_nnet.py test --test $test_dir --output $output_file --embed $embeddin
 ## The output consists of a lot of ids, which is for trec_eval.
 ## The submssion2TSV.py script will convert it to include original
 ## query and answer texts so we can analyze it.
-readable_result_file=exp.out/relevance/hb06.tsv
+readable_result_file=exp.out/relevance_alphabet_only/hb06.tsv
 python submission2TSV.py $output_file $test_file $readable_result_file
