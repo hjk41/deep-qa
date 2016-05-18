@@ -31,13 +31,13 @@ n_epochs = 100
 batch_size = 50
 n_dev_batch = 200
 n_iter_per_val = 100
-n_conv_kernels = 100
+n_conv_kernels = 2000
 n_outs = 2
 learning_rate = 0.1
 max_norm = 0
 early_stop_epochs = 5
 regularize = True
-pairwise_feature = True
+pairwise_feature = False
 n_hidden_layers = 1
 
 def conv_layer(batch_size,
@@ -106,18 +106,18 @@ def deep_qa_net(batch_size,
   n_conv_kern               int, number of convolution kernels, currently 100
   n_input_channel           int, number of input channel for convolution, currently 1
   '''
-  q_filter_widths = [3,4,5]
-  a_filter_widths = [3,4,5]
+  q_filter_widths = [3,5]
+  a_filter_widths = [3,5]
   ## question conv
   nnet_q = conv_layer(batch_size, 
                       embedding, embedding_overlap, numpy_randg, 
                       x_q, x_q_overlap,
-                      q_filter_widths, 100, 1, 1)
+                      q_filter_widths, n_conv_kern, q_k_max, a_k_max)
   ## answer conv
   nnet_a = conv_layer(batch_size, 
                       embedding, embedding_overlap, numpy_randg, 
                       x_a, x_a_overlap,
-                      a_filter_widths, 100, 1, 1)
+                      a_filter_widths, n_conv_kern, q_k_max, a_k_max)
   q_logistic_n_in = n_conv_kern * len(q_filter_widths) * q_k_max
   a_logistic_n_in = n_conv_kern * len(a_filter_widths) * a_k_max
   dropout_q = nn_layers.FastDropoutLayer(rng=numpy_randg) 
@@ -134,11 +134,12 @@ def deep_qa_net(batch_size,
     pairwise_layer.set_input((dropout_q.output, dropout_a.output))
     layers.append(pairwise_layer)
     pairwise_output = pairwise_layer.output
+    n_in = q_logistic_n_in + a_logistic_n_in + 1
   else:
     pairwise_output = T.concatenate([dropout_q.output, dropout_a.output], axis=1)
+    n_in = q_logistic_n_in + a_logistic_n_in
 
   last_output = pairwise_output
-  n_in = q_logistic_n_in + a_logistic_n_in + 1
   for i in range(n_hidden_layers):
     hidden_layer = nn_layers.LinearLayer(numpy_randg, n_in=n_in, n_out=n_in, activation=T.tanh)  
     hidden_layer.set_input(last_output)
