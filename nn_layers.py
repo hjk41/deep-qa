@@ -1,4 +1,4 @@
-import cPickle
+﻿import cPickle
 import numpy
 import theano
 from theano import tensor as T
@@ -117,10 +117,14 @@ class DropoutLayer(Layer):
       seed = rng.randint(2 ** 30)
       self.srng = RandomStreams(seed)
       self.p = p
+      self.dropout_on = True
 
     def output_func(self, input):
       mask = self.srng.binomial(n=1, p=1.-self.p, size=input.shape, dtype=theano.config.floatX)
       return input * mask
+
+    def switch_dropout(self, on = False):
+      self.dropout_on = on
 
     def __repr__(self):
       return "{}: p={}".format(self.__class__.__name__, self.p)
@@ -336,7 +340,8 @@ class NonLinearityLayer(Layer):
     self.biases = [self.b]
 
   def output_func(self, input):
-    return self.activation(input + self.b.dimshuffle('x', 0, 'x', 'x'))
+    #return self.activation(input + self.b.dimshuffle('x', 0, 'x', 'x'))
+    return input + self.b.dimshuffle('x', 0, 'x', 'x')
 
   def __repr__(self):
     return "{}: b_shape={} activation={}".format(self.__class__.__name__, self.b.shape.eval(), self.activation)
@@ -556,88 +561,51 @@ class LogisticRegression(Layer):
         return T.mean(T.eq(self.y_pred, y)) * 100
 
 
-class DirectOutput(Layer):
-    def __init__(self, n_in, n_out, W=None, b=None):
-#        super().__init__(n_in, n_out, W, b)
-        self.W = W
-        self.b = b
-        self.weights = []
-        self.biases = []
+class CosineSimilarityLoss(Layer):
+    def __init__(self, m):
+        super(CosineSimilarityLoss, self).__init__()
+        self.m = m
 
     def __repr__(self):
-        return "{}".format(self.__class__.__name__)
+        return "{}: m={}".format(self.__class__.__name__, self.m)
 
     def output_func(self, input):
-        self.p_y_given_x = input
+        self.p_y_given_x = input * input
         self.y_pred = self.p_y_given_x > 0.5
         return self.y_pred
 
-    def _dot(self, a, b):
-        return T.dot(a, b)
+    def training_cost(self, y):
+        '''
+          L = max{0, m - s(q, a+) + s(q, a-)}
+        '''
+        L = -(self.p_y_given_x * y) + (self.p_y_given_x * (1 - y)) + self.m
+        self.L = L
+        return T.mean(L.clip(0,10))
 
-    def negative_log_likelihood(self, y):
-        return -T.mean(T.log(self.p_y_given_x)[y])
+class SingleLR(Layer):
+    def __init__(self, m):
+        super(SingleLR, self).__init__()
+        self.W = build_shared_zeros((1,1), 'W_softmax')
+        self.b = build_shared_zeros((1,), 'b_softmax')
+        self.weights=[self.W]
+        self.biases=[self.b]
+        self.m = m
 
-    def negative_log_likelihood_sum(self, y):
-        return -T.sum(T.log(self.p_y_given_x)[y])
+    def __repr__(self):
+        return "{}: W={}, b={}".format(self.__class__.__name__, self.W, self.b)
+
+    def output_func(self, input):
+        x = input * input
+        # P(Y|X) = softmax(W.X + b)
+        p_y_given_x = T.nnet.sigmoid(T.dot(x.reshape([x.shape[0],1]), self.W) + self.b)
+        self.p_y_given_x = p_y_given_x.reshape([p_y_given_x.shape[0]])
+        self.y_pred = self.p_y_given_x > 0.5
+        return self.y_pred
 
     def training_cost(self, y):
-        """ Wrapper for standard name """
-        return self.negative_log_likelihood(y)
-
-    def training_cost_weighted(self, y, weights=None):
-        """ Wrapper for standard name """
-        LL = T.log(self.p_y_given_x)[y]
-        weights = T.repeat(weights.dimshuffle('x', 0), y.shape[0], axis=0)
-        factors = weights[T.arange(y.shape[0]), y]
-        return -T.mean(LL * factors)
-
-    def errors(self, y):
-        if y.ndim != self.y_pred.ndim:
-            raise TypeError("y should have the same shape as self.y_pred",
-                ("y", y.type, "y_pred", self.y_pred.type))
-        if y.dtype.startswith('int'):
-            return T.mean(T.neq(self.y_pred, y))
-        else:
-            print("!!! y should be of int type")
-            return T.mean(T.neq(self.y_pred, numpy.asarray(y, dtype='int')))
-
-    def f1_score(self, y, labels=[0, 2]):
-      """
-      Mean F1 score between two classes (positive and negative as specified by the labels array).
-      """
-      y_tr = y
-      y_pr = self.y_pred
-
-      correct = T.eq(y_tr, y_pr)
-      wrong = T.neq(y_tr, y_pr)
-
-      label = labels[0]
-      tp_neg = T.sum(correct * T.eq(y_tr, label))
-      fp_neg = T.sum(wrong * T.eq(y_pr, label))
-      fn_neg = T.sum(T.eq(y_tr, label) * T.neq(y_pr, label))
-      tp_neg = T.cast(tp_neg, theano.config.floatX)
-      prec_neg = tp_neg / T.maximum(1, tp_neg + fp_neg)
-      recall_neg = tp_neg / T.maximum(1, tp_neg + fn_neg)
-      f1_neg = 2. * prec_neg * recall_neg / T.maximum(1, prec_neg + recall_neg)
-
-      label = labels[1]
-      tp_pos = T.sum(correct * T.eq(y_tr, label))
-      fp_pos = T.sum(wrong * T.eq(y_pr, label))
-      fn_pos = T.sum(T.eq(y_tr, label) * T.neq(y_pr, label))
-      tp_pos = T.cast(tp_pos, theano.config.floatX)
-      prec_pos = tp_pos / T.maximum(1, tp_pos + fp_pos)
-      recall_pos = tp_pos / T.maximum(1, tp_pos + fn_pos)
-      f1_pos = 2. * prec_pos * recall_pos / T.maximum(1, prec_pos + recall_pos)
-
-      return 0.5 * (f1_pos + f1_neg) * 100
-
-    def accuracy(self, y):
-        if y.ndim != self.y_pred.ndim:
-            raise TypeError("y should have the same shape as self.y_pred",
-                ("y", y.type, "y_pred", self.y_pred.type))
-        return T.mean(T.eq(self.y_pred, y)) * 100
-
+        return -T.mean(T.log(self.p_y_given_x)*y + T.log(1-self.p_y_given_x)*(1-y))
+        #L = self.m - self.p_y_given_x * y + self.p_y_given_x * (1 - y)
+        #return T.mean(L.clip(0, 10))
 
 class L2SVM(Layer):
     """Multi-class Logistic Regression
@@ -934,7 +902,7 @@ class PairwiseAttentivePollingSimilarity(Layer):
     # q_in and a_in are of shape (batch, channel, sent_length, 1)
     #W = theano.shared(value=numpy.random.rand(n_channel,n_channel).astype(numpy.float32),
     #       name='W_pairwise_attention', borrow=True)
-    W = build_shared_ones((n_channel,n_channel), 'W_pairwise')
+    W = build_shared_zeros((n_channel,n_channel), 'W_pairwise')
     self.W = W
     self.weights = [self.W]
 
@@ -957,7 +925,9 @@ class PairwiseAttentivePollingSimilarity(Layer):
       # now compute cosine
       numberator = T.batched_dot(rq, ra)
       denominator = T.sqrt(T.sum(rq*rq, axis=1) * T.sum(ra*ra, axis=1))
-      return numberator/denominator
+      result = numberator/denominator
+      return result
+      
 
 class PairwiseOnlySimWithFeatsLayer(Layer):
   def __init__(self, q_in, a_in, n_in, activation=T.tanh):

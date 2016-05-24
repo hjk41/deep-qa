@@ -41,19 +41,18 @@ def load_w2v(fname):
     print "done"
     return word_vecs
 
-
 def main(argv):
-  if (len(argv) != 2):
-    print('usage: parse2bin.py embeddingfile')
+  if (len(argv) != 3):
+    print('usage: parse2bin.py embeddingfile outdir')
     exit(1)
   fpath = argv[1]
+  outdir = argv[2]
   dir, fname = os.path.split(fpath)
   print('loading embedding file {}'.format(fpath))
   if (fname.startswith('glove')):
     w2v = load_glove(fpath)
   else:
     w2v = load_w2v(fpath)
-  out_fname = '.'.join(fname.split('.')[:-1])
   vocab = {}
   vectors = []
   wid = 0
@@ -62,10 +61,10 @@ def main(argv):
     wid += 1
     vectors.append(v)
   vectors = np.array(vectors)
-  vocab_file = os.path.join(dir, out_fname + '.vocab.pickle')
+  vocab_file = os.path.join(outdir, 'vocab.pickle')
   print('dumping vocab file to: {}'.format(vocab_file))
   cPickle.dump(vocab, open(vocab_file, 'w'))
-  vector_file = os.path.join(dir, out_fname + '.npy')
+  vector_file = os.path.join(outdir, 'emb.npy')
   print('dumping vector file to: {}'.format(vector_file))
   np.save(vector_file, vectors)
 
