@@ -112,19 +112,23 @@ class ParallelLayer(FeedForwardNet):
 
 class DropoutLayer(Layer):
     """ Basic linear transformation layer (W.X + b) """
-    def __init__(self, rng, p=0.5):
+    def __init__(self, rng, p=0.5, dropout_on = None):
       super(DropoutLayer, self).__init__()
       seed = rng.randint(2 ** 30)
       self.srng = RandomStreams(seed)
       self.p = p
-      self.dropout_on = True
+      self.dropout_on = dropout_on
 
     def output_func(self, input):
-      mask = self.srng.binomial(n=1, p=1.-self.p, size=input.shape, dtype=theano.config.floatX)
-      return input * mask
-
-    def switch_dropout(self, on = False):
-      self.dropout_on = on
+      if (self.p != 0):
+        mask = self.srng.binomial(n=1, p=1.-self.p, size=input.shape, dtype=theano.config.floatX)
+        if (self.dropout_on is not None):
+          output = theano.ifelse.ifelse(T.eq(self.dropout_on, 0), input, input * mask)
+        else:
+          output = input*mask
+      else:
+        output = input
+      return output
 
     def __repr__(self):
       return "{}: p={}".format(self.__class__.__name__, self.p)
@@ -207,7 +211,6 @@ class PadLayer(Layer):
     pad_matrix = T.zeros((input.shape[0], input.shape[1], self.pad, input.shape[3]))
     out = T.concatenate([pad_matrix, input, pad_matrix], axis=self.axis)
     return out
-
 
 
 class LookupTableFastStatic(Layer):
@@ -571,7 +574,7 @@ class CosineSimilarityLoss(Layer):
 
     def output_func(self, input):
         self.p_y_given_x = input * input
-        self.y_pred = self.p_y_given_x > 0.5
+        self.y_pred = self.p_y_given_x > 0.3
         return self.y_pred
 
     def training_cost(self, y):
@@ -902,7 +905,8 @@ class PairwiseAttentivePollingSimilarity(Layer):
     # q_in and a_in are of shape (batch, channel, sent_length, 1)
     #W = theano.shared(value=numpy.random.rand(n_channel,n_channel).astype(numpy.float32),
     #       name='W_pairwise_attention', borrow=True)
-    W = build_shared_zeros((n_channel,n_channel), 'W_pairwise')
+    #W = build_shared_zeros((n_channel,n_channel), 'W_pairwise')
+    W = build_shared_ones((n_channel,n_channel), 'W_pairwise')
     self.W = W
     self.weights = [self.W]
 
