@@ -25,8 +25,8 @@ warnings.filterwarnings("ignore")  # TODO remove
 
 n_epochs = 100
 batch_size = 50
-n_dev_batch = 20000
-n_iter_per_val = 100
+n_dev_batch = 200
+n_iter_per_val = 1000
 n_conv_kernels = 400
 early_stop_epochs = 10
 regularize = False
@@ -147,10 +147,10 @@ def to1hot(data):
         b[i, j, data[i, j]] = 1.0
   return b
 
-def lookup_emb(data, emb):
+def embed(data, emb):
   return emb[data.astype(numpy.int).flatten()].reshape((data.shape[0], 1, data.shape[1], emb.shape[1]))
 
-def load_data(input_dir, embed):
+def load_data(input_dir):
   q = numpy.load(os.path.join(input_dir, 'questions.npy')).astype(numpy.float32)
   a = numpy.load(os.path.join(input_dir, 'answers.npy')).astype(numpy.float32)
   q_overlap = numpy.load(os.path.join(input_dir, 'q_overlap_indices.npy')).astype(numpy.float32)
@@ -158,10 +158,7 @@ def load_data(input_dir, embed):
   y = numpy.load(os.path.join(input_dir, 'labels.npy')).astype(numpy.float32)
   qids = numpy.load(os.path.join(input_dir, 'qids.npy'))
   lineids = numpy.load(os.path.join(input_dir, 'lineids.npy'))
-  if (embed_on_cpu):
-    return (lookup_emb(q, embed), lookup_emb(a, embed), q_overlap, a_overlap, y, qids, lineids)
-  else:
-    return (q, a, q_overlap, a_overlap, y, qids, lineids)
+  return (q, a, q_overlap, a_overlap, y, qids, lineids)
 
 def main(argv):
   parser = argparse.ArgumentParser()
@@ -256,7 +253,7 @@ def main(argv):
     print 'max_norm', max_norm
     # load data
     print "Running training with train={}, validation={}".format(args.train, args.validation)
-    q_train, a_train, q_overlap_train, a_overlap_train, y_train, qids_train, _ = load_data(args.train, vocab_emb)
+    q_train, a_train, q_overlap_train, a_overlap_train, y_train, qids_train, _ = load_data(args.train)
     # shuffle training data
     sample_idx = numpy.arange(q_train.shape[0])
     numpy.random.shuffle(sample_idx)
@@ -267,7 +264,7 @@ def main(argv):
     y_train = y_train[sample_idx]
     qids_train = qids_train[sample_idx]
     # subsample the dev set
-    q_dev, a_dev, q_overlap_dev, a_overlap_dev, y_dev, qids_dev, _ = load_data(args.validation, vocab_emb)
+    q_dev, a_dev, q_overlap_dev, a_overlap_dev, y_dev, qids_dev, _ = load_data(args.validation)
     dev_size = q_dev.shape[0]
     sample_idx = numpy.arange(dev_size)
     numpy.random.shuffle(sample_idx)
@@ -285,7 +282,7 @@ def main(argv):
     print 'a_train', a_train.shape
     print 'a_dev', a_dev.shape
   if (do_test):
-    q_test, a_test, q_overlap_test, a_overlap_test, y_test, qids_test, lineids_test = load_data(args.test, vocab_emb)
+    q_test, a_test, q_overlap_test, a_overlap_test, y_test, qids_test, lineids_test = load_data(args.test)
     q_max_sent_size = q_test.shape[1]
     a_max_sent_size = a_test.shape[1]
 
@@ -377,19 +374,31 @@ def main(argv):
   loss_fn = theano.function(inputs=[Q, A, Q_OVERLAP, A_OVERLAP, Y, DROPOUT_ON],
                             outputs=cost)
 
-  def embed(data):
-    return vocab_emb[data.flatten()].reshape(data.shape[0], 1, data.shape[1], vocab_emb.shape[1]).astype(numpy.float32)     
-
   def predict_batch(batch_iterator):
-    preds = numpy.hstack([pred_fn(batch_x_q, batch_x_a, batch_x_q_overlap, batch_x_a_overlap, 0.0) for batch_x_q, batch_x_a, batch_x_q_overlap, batch_x_a_overlap, _ in batch_iterator])
+    if (embed_on_cpu):
+      preds = numpy.hstack([pred_fn(embed(batch_x_q, vocab_emb), embed(batch_x_a, vocab_emb), 
+                                    batch_x_q_overlap, batch_x_a_overlap, 0.0) 
+                                    for batch_x_q, batch_x_a, batch_x_q_overlap, batch_x_a_overlap, _ in batch_iterator])
+    else:
+      preds = numpy.hstack([pred_fn(batch_x_q, batch_x_a, batch_x_q_overlap, batch_x_a_overlap, 0.0) for batch_x_q, batch_x_a, batch_x_q_overlap, batch_x_a_overlap, _ in batch_iterator])
     return preds[:batch_iterator.n_samples]
 
   def predict_prob_batch(batch_iterator):
-    preds = numpy.hstack([pred_prob_fn(batch_x_q, batch_x_a, batch_x_q_overlap, batch_x_a_overlap, 0.0) for batch_x_q, batch_x_a, batch_x_q_overlap, batch_x_a_overlap, _ in batch_iterator])
+    if (embed_on_cpu):
+      preds = numpy.hstack([pred_prob_fn(embed(batch_x_q, vocab_emb), embed(batch_x_a, vocab_emb), 
+                                    batch_x_q_overlap, batch_x_a_overlap, 0.0) 
+                                    for batch_x_q, batch_x_a, batch_x_q_overlap, batch_x_a_overlap, _ in batch_iterator])
+    else:
+      preds = numpy.hstack([pred_prob_fn(batch_x_q, batch_x_a, batch_x_q_overlap, batch_x_a_overlap, 0.0) for batch_x_q, batch_x_a, batch_x_q_overlap, batch_x_a_overlap, _ in batch_iterator])
     return preds[:batch_iterator.n_samples]
 
   def loss_batch(batch_iterator):
-    loss = numpy.sum(numpy.hstack([loss_fn(batch_x_q, batch_x_a, batch_x_q_overlap, batch_x_a_overlap, y, 1.0) for batch_x_q, batch_x_a, batch_x_q_overlap, batch_x_a_overlap, y in batch_iterator]))
+    if (embed_on_cpu):
+      loss = numpy.sum(numpy.hstack([loss_fn(embed(batch_x_q, vocab_emb), embed(batch_x_a, vocab_emb), 
+                                    batch_x_q_overlap, batch_x_a_overlap, y, 1.0) 
+                                    for batch_x_q, batch_x_a, batch_x_q_overlap, batch_x_a_overlap, y in batch_iterator]))
+    else:
+      loss = numpy.sum(numpy.hstack([loss_fn(batch_x_q, batch_x_a, batch_x_q_overlap, batch_x_a_overlap, y, 1.0) for batch_x_q, batch_x_a, batch_x_q_overlap, batch_x_a_overlap, y in batch_iterator]))
     return loss
 
   def map_score(qids, labels, preds):
@@ -433,7 +442,11 @@ def main(argv):
         timer = time.time()
         train_loss = 0.0
         for i, (x_q, x_a, x_q_overlap, x_a_overlap, y) in enumerate(tqdm(train_set_iterator), 1):
-            train_loss = train_fn(x_q, x_a, x_q_overlap, x_a_overlap, y, 1.0)
+            if (embed_on_cpu):
+              train_loss = train_fn(embed(x_q, vocab_emb), embed(x_a, vocab_emb), 
+                                    x_q_overlap, x_a_overlap, y, 1.0)
+            else:
+              train_loss = train_fn(x_q, x_a, x_q_overlap, x_a_overlap, y, 1.0)
             #best_params = [numpy.copy(p.get_value(borrow=True)) for p in params]
 
             # Make sure the null word in the word embeddings always remains zero

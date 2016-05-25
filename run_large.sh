@@ -14,12 +14,12 @@ validation_dir=parseddata/relevance_alphabet_only/hb03
 test_dir=parseddata/relevance_alphabet_only/hb06
 
 ## We need a embedding file, processed with parse_embeddings.py
-embedding=embeddings/word2vec
+embedding=embeddings/word2vec/300dim
 ## Each file will be parsed and will generate several files, so we need
 ## to specify a directory to store the files for each input
-python parse.py -i $train_file -o $train_dir -e $embedding
-python parse.py -i $validation_file -o $validation_dir -e $embedding
-python parse.py -i $test_file -o $test_dir -e $embedding
+#python parse.py -i $train_file -o $train_dir -e $embedding
+#python parse.py -i $validation_file -o $validation_dir -e $embedding
+#python parse.py -i $test_file -o $test_dir -e $embedding
 
 ### Now we can run training and testing, we can also do both at
 ##  the same time by specifying 'all' as the first parameter to
@@ -30,8 +30,8 @@ output_file=exp.out/relevance_alphabet_only/output.txt
 ## model file will store the model parameters
 model_file=exp.out/relevance_alphabet_only/model
 
-python run_nnet.py train --train $train_dir --validation $validation_dir --embed $embedding --model $model_file
-python run_nnet.py test --test $test_dir --output $output_file --embed $embedding --model $model_file
+python run_nnet.py all --train $train_dir --validation $validation_dir --test $test_dir --embed $embedding --model $model_file --output $output_file
+#python run_nnet.py test --test $test_dir --output $output_file --embed $embedding --model $model_file
 
 ### Convert the output to readable format
 ## The output consists of a lot of ids, which is for trec_eval.
