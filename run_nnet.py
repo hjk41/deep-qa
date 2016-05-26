@@ -30,7 +30,7 @@ n_iter_per_val = 1000
 n_conv_kernels = 400
 early_stop_epochs = 10
 regularize = False
-dropout_rate = 0.5
+dropout_rate = 0.0
 sgd_learning_rate=1
 embed_on_cpu = True
 use_overlap = True
@@ -170,7 +170,8 @@ def main(argv):
   parser.add_argument('-b', '--embed', help='embedding dir')
   parser.add_argument('-m', '--model', help='model parameter file')
   parser.add_argument('-c', '--trec', type=bool, default=True, help='whether to run trec eval script')
-  parser.add_argument('-g', '--debug', type=bool, default=False, help='enable ptvsd debugging')
+  parser.add_argument('-g', '--debug', default=False, action='store_true', help='enable ptvsd debugging')
+  parser.add_argument('-l', '--loadmodel', default=False, action='store_true', help='load the model before training')
   args = parser.parse_args()
 
   if (args.debug):
@@ -438,6 +439,10 @@ def main(argv):
     timer_train = time.time()
     no_best_dev_update = 0
     num_train_batches = len(train_set_iterator)
+    if (args.loadmodel and os.path.exists(args.model)):
+      best_params = cPickle.load(open(args.model, 'rb'))
+      for i, param in enumerate(best_params):
+        params[i].set_value(param, borrow=True)   
     while epoch < n_epochs:
         timer = time.time()
         train_loss = 0.0
