@@ -336,11 +336,12 @@ class NonLinearityLayer(Layer):
     super(NonLinearityLayer, self).__init__()
     if not b:
       b_values = numpy.zeros(b_size, dtype=theano.config.floatX)
-      b = theano.shared(value=b_values, name='b', borrow=True)
+      b = theano.shared(value=b_values, name='bias_nonlinear', borrow=True)
+      self.biases = [b]
     self.b = b
     self.activation = activation
     # In input we get a tensor (batch_size, nwords, ndim)
-    self.biases = [self.b]
+   
 
   def output_func(self, input):
     #return self.activation(input + self.b.dimshuffle('x', 0, 'x', 'x'))
@@ -441,12 +442,11 @@ class ConvolutionLayer(Layer):
       # Simple initialization
       # W_data = 0.05 * rng.randn(*filter_shape).astype(dtype=theano.config.floatX)
       W = theano.shared(W_data, name="W_conv1d", borrow=True)
+      self.weights = [W]
 
     self.filter_shape = filter_shape
     self.input_shape = input_shape
-
-    self.W = W
-    self.weights = [self.W]
+    self.W = W    
 
   def __repr__(self):
     return "{}: filter_shape={}; input_shape={}".format(self.__class__.__name__, self.W.shape.eval(), self.input_shape)
@@ -573,17 +573,21 @@ class CosineSimilarityLoss(Layer):
         return "{}: m={}".format(self.__class__.__name__, self.m)
 
     def output_func(self, input):
-        self.p_y_given_x = input * input
-        self.y_pred = self.p_y_given_x > 0.3
+        self.cosine = input
+        self.p_y_given_x = T.nnet.sigmoid(input)
+        self.y_pred = self.p_y_given_x > 0.5
         return self.y_pred
 
     def training_cost(self, y):
         '''
           L = max{0, m - s(q, a+) + s(q, a-)}
         '''
-        L = -(self.p_y_given_x * y) + (self.p_y_given_x * (1 - y)) + self.m
-        self.L = L
-        return T.mean(L.clip(0,10))
+        L = self.p_y_given_x * (1 - y)
+        G = self.p_y_given_x * y
+        maxL = T.max(L)
+        maxG = T.max(G)
+        loss = (self.m - maxG + maxL).clip(0,10)
+        return loss
 
 class SingleLR(Layer):
     def __init__(self, m):

@@ -48,7 +48,9 @@ def conv_layer(batch_size,
     x_overlap,                # overlap matrix
     filter_width = 4,         # filter widths to use, currently 3
     n_conv_kern = 100,        # number of convolution kernels, currently 100
-    n_input_channel = 1):
+    n_input_channel = 1,
+    conv_weights = None,
+    conv_bias = None):
   '''
   Build the convolution layer that convs the q and a
   
@@ -70,8 +72,8 @@ def conv_layer(batch_size,
     ndim = embedding.shape[1]
   #input_shape = (batch_size, n_input_channel, max_sent_length + 2*(max(filter_widths)-1), ndim)
   filter_shape = (n_conv_kern, n_input_channel, filter_width, ndim)
-  conv = nn_layers.Conv2dLayer(rng=numpy_randg, filter_shape=filter_shape)
-  non_linearity = nn_layers.NonLinearityLayer(b_size=filter_shape[0], activation=T.tanh)
+  conv = nn_layers.Conv2dLayer(rng=numpy_randg, filter_shape=filter_shape, W=conv_weights)
+  non_linearity = nn_layers.NonLinearityLayer(b_size=filter_shape[0], activation=T.tanh, b=conv_bias)
   nnet = nn_layers.FeedForwardNet(layers=[lookup_table, conv, non_linearity])
   if (embed_on_cpu):
     inputx = x
@@ -112,11 +114,23 @@ def deep_qa_net(batch_size,
                       embedding, embedding_overlap, numpy_randg, 
                       x_q, x_q_overlap,
                       3, n_conv_kern, 1)
-  ## answer conv
+  conv_weights = None
+  conv_bias = None
+  for w in nnet_q.weights:
+    if w.name.startswith('W_conv1d'):
+      conv_weights = w
+  for b in nnet_q.biases:
+    if b.name.startswith('bias_nonlinear'):
+      conv_bias = b
+  assert conv_weights is not None
+  assert conv_bias is not None
+  # answer conv
   nnet_a = conv_layer(batch_size, 
                       embedding, embedding_overlap, numpy_randg, 
                       x_a, x_a_overlap,
-                      3, n_conv_kern, 1)
+                      3, n_conv_kern, 1,
+                      conv_weights, conv_bias)
+    
   output_q = nnet_q.output
   output_a = nnet_a.output
   layers = [nnet_q, nnet_a]
@@ -132,13 +146,68 @@ def deep_qa_net(batch_size,
   attentive_similarity = nn_layers.PairwiseAttentivePollingSimilarity(n_conv_kern)
   attentive_similarity.set_input((output_q, output_a))
   layers.append(attentive_similarity)
-  #classifier = nn_layers.CosineSimilarityLoss(m = 0.3)
-  classifier = nn_layers.SingleLR(m = 0.3)
+  classifier = nn_layers.CosineSimilarityLoss(m = 0.5)
+  #classifier = nn_layers.SingleLR(m = 0.3)
   classifier.set_input(attentive_similarity.output.reshape([attentive_similarity.output.shape[0]]))
   layers.append(classifier)
   nnet = nn_layers.FeedForwardNet(layers=layers,
                                           name="nnet")
   return nnet
+
+class QADataset():
+  def __init__(self, qids, q, a, q_overlap, a_overlap, labels):
+    self.qids = qids
+    self.q = q
+    self.a = a
+    self.q_overlap = q_overlap
+    self.a_overlap = a_overlap
+    self.labels = labels
+
+class NegativeSamplingIterator(object):
+  """ select a positive example and (batch-size - 1) random negative ones """
+  def __init__(self, rng, qadataset, batch_size=100):
+    self.rng = rng
+    self.batch_size = batch_size
+    self.n_samples = qadataset.qids.shape[0]
+    self.dataset = qadataset
+    self.n_batches = (self.n_samples + self.batch_size - 1) / self.batch_size
+    self.positive_example_idx = [idx for idx in xrange(self.n_samples) if self.dataset.labels[idx] == 1]
+    self.n_positive = len(self.positive_example_idx)
+
+  def __len__(self):
+    return self.n_batches
+
+  def __iter__(self):
+    n_batches = self.n_batches
+    batch_size = self.batch_size
+    n_samples = self.n_samples
+    for _ in xrange(n_batches):
+      i = self.rng.randint(self.n_positive)
+      pos = self.positive_example_idx[i]
+      qid_pos = self.dataset.qids[pos]
+
+      q = [self.dataset.q[pos]]
+      a = [self.dataset.a[pos]]
+      q_overlap = [self.dataset.q_overlap[pos]]
+      a_overlap = [self.dataset.a_overlap[pos]]
+      labels = [self.dataset.labels[pos]]
+      q_pos = q[0]
+      q_overlap_pos = q_overlap[0]
+      # look for negative examples
+      while len(labels) < self.batch_size:
+        i = self.rng.randint(self.n_samples)
+        if (self.dataset.qids[i] != qid_pos):
+          q.append(q_pos)
+          q_overlap.append(q_overlap_pos)
+          a.append(self.dataset.a[i])          
+          a_overlap.append(self.dataset.a_overlap[i])
+          labels.append(0)
+      yield [numpy.array(q, dtype=numpy.float32), 
+             numpy.array(a, dtype=numpy.float32), 
+             numpy.array(q_overlap, dtype=numpy.float32),
+             numpy.array(a_overlap, dtype=numpy.float32),
+             numpy.array(labels, dtype=numpy.float32)]
+
 
 def to1hot(data):
   b = numpy.zeros((data.shape[0], data.shape[1], n_overlap_choices))
@@ -420,7 +489,7 @@ def main(argv):
     return map_score
 
   if (do_train):
-    train_set_iterator = sgd_trainer.MiniBatchIteratorConstantBatchSize(numpy_rng, [q_train, a_train, q_overlap_train, a_overlap_train, y_train], batch_size=batch_size, randomize=True)
+    train_set_iterator = NegativeSamplingIterator(numpy_rng, QADataset(qids_train, q_train, a_train, q_overlap_train, a_overlap_train, y_train), batch_size=batch_size)
     dev_set_iterator = sgd_trainer.MiniBatchIteratorConstantBatchSize(numpy_rng, [q_dev, a_dev, q_overlap_dev, a_overlap_dev, y_dev], batch_size=batch_size, randomize=False)
     train_set_iterator_norandom = sgd_trainer.MiniBatchIteratorConstantBatchSize(numpy_rng, [q_train, a_train, q_overlap_train, a_overlap_train, y_train], batch_size=batch_size, randomize=False)
     #print "Zero out dummy word:", ZEROUT_DUMMY_WORD
@@ -473,10 +542,10 @@ def main(argv):
                 best_params = [numpy.copy(p.get_value(borrow=True)) for p in params]
                 no_best_dev_update = 0
         # evaluate on training data
-        #y_pred_train = predict_prob_batch(train_set_iterator_norandom)
-        #train_acc = metrics.roc_auc_score(y_train, y_pred_train) * 100
-        # train_loss = loss_batch(train_set_iterator_norandom)
-        #print('epoch: {} train auc: {:.4f} train loss:{}'.format(epoch, train_acc, train_loss))
+        y_pred_train = predict_prob_batch(train_set_iterator_norandom)
+        train_acc = metrics.roc_auc_score(y_train, y_pred_train) * 100
+        train_loss = loss_batch(train_set_iterator_norandom)
+        print('epoch: {} train auc: {:.4f} train loss:{}'.format(epoch, train_acc, train_loss))
 
         if no_best_dev_update >= early_stop_epochs:
           print "Quitting after of no update of the best score on dev set", no_best_dev_update
