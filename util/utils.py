@@ -16,3 +16,18 @@ def setup_logger(level=logging.INFO):
     handler = logging.StreamHandler()
     handler.setFormatter(formatter)
     logging.root.addHandler(handler)
+
+def enable_ptvsd(port = None, secret='secret'):
+    '''
+    Enable PTVSD and wait for attach
+
+    Params:
+        port:   int port on which to listen on 
+        secret: string  secret
+    '''
+    import ptvsd
+    if (port):
+        ptvsd.enable_attach(secret, address=('0.0.0.0', port))
+    else:
+        ptvsd.enable_attach(secret='secret')
+    ptvsd.wait_for_attach()

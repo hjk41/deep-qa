@@ -9,7 +9,7 @@ import numpy
 import os
 import pickle
 
-from utils import setup_logger
+from utils import setup_logger, enable_ptvsd
 
 def load_embedding_w2v(fname):
     """
@@ -118,9 +118,7 @@ if (__name__ == '__main__'):
     args = parser.parse_args()
 
     if (args.debug):
-        import ptvsd
-        ptvsd.enable_attach(secret='secret')
-        ptvsd.wait_for_attach()
+        enable_ptvsd()
     
     parent_dir = os.path.abspath(os.path.join(args.output, os.pardir))
     if (not os.path.exists(parent_dir)):
