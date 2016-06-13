@@ -21,7 +21,9 @@
     <PtvsTargetsFile>$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets</PtvsTargetsFile>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="abcnn.py" />
     <Compile Include="alphabet.py" />
+    <Compile Include="cnn.py" />
     <Compile Include="conv1d.py" />
     <Compile Include="convertSuperDo.py" />
     <Compile Include="extract_embeddings.py" />

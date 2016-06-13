@@ -9,6 +9,8 @@ import shutil
 import argparse
 from collections import defaultdict
 from utils import load_bin_vec
+from keras.models import *
+from keras.layers import *
 
 from alphabet import Alphabet
 import ptvsd
@@ -62,7 +64,7 @@ def load_xml(fname, skip_long_sent):
       questions.append(question)
       qids.append(qid)
   # print sorted(qid2num_answers.items(), key=lambda x: float(x[0]))
-  print 'num_skipped: ', num_skipped
+  print('num_skipped: {}'.format(num_skipped))
   return question2qid.keys(), qids, questions, answers, labels, []
 
 def passage2list(psg):
