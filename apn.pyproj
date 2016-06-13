@@ -21,19 +21,21 @@
     <PtvsTargetsFile>$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets</PtvsTargetsFile>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="abcnn.py" />
     <Compile Include="alphabet.py" />
-    <Compile Include="cnn.py" />
+    <Compile Include="models\abcnn.py" />
+    <Compile Include="models\cnn.py" />
     <Compile Include="conv1d.py" />
     <Compile Include="convertSuperDo.py" />
-    <Compile Include="extract_embeddings.py" />
+    <Compile Include="util\embedding.py" />
     <Compile Include="nn_layers.py" />
     <Compile Include="parse.py" />
     <Compile Include="parse_embedding.py" />
     <Compile Include="run_nnet.py" />
-    <Compile Include="sgd_trainer.py" />
     <Compile Include="submission2TSV.py" />
-    <Compile Include="utils.py" />
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="models\" />
+    <Folder Include="util\" />
   </ItemGroup>
   <Import Project="$(PtvsTargetsFile)" Condition="Exists($(PtvsTargetsFile))" />
   <Import Project="$(MSBuildToolsPath)\Microsoft.Common.targets" Condition="!Exists($(PtvsTargetsFile))" />

@@ -2,17 +2,11 @@
 import os
 import numpy as np
 import cPickle
-import subprocess
 import sys
 import string
-import shutil
 import argparse
-from collections import defaultdict
 from utils import load_bin_vec
-from keras.models import *
-from keras.layers import *
 
-from alphabet import Alphabet
 import ptvsd
 #ptvsd.enable_attach(secret='secret')
 #ptvsd.wait_for_attach()
@@ -343,23 +337,6 @@ def convert_dataset(qids, questions, answers, labels, lineids,
   with open(os.path.join(prefix, 'nonembed.txt'), 'w') as f:
     for w in unknown_words:
       f.write('{}\n'.format(w))
-
-def load_glove(embeddingfile, words):
-  word2vec = {}
-  with open(embeddingfile) as f:
-    i = 0
-    for line in f:
-      i += 1
-      if (i % 1000 == 0):
-        sys.stdout.write('load {} lines\t\t\r'.format(i))
-        sys.stdout.flush()
-      fields = line.split()
-      w = fields[0]
-      if (w not in words):
-        continue
-      word2vec[w] = np.array([float(f) for f in fields[1:]])
-  sys.stdout.write('\n')
-  return word2vec
 
 def dump_embedding(outdir, embeddingfile, alphabet):
   words = alphabet.keys()
