@@ -11,7 +11,7 @@ import pickle
 
 from utils import setup_logger, enable_ptvsd
 
-def load_embedding_w2v(fname):
+def __load_embedding_w2v(fname):
     """
     Loads word vecs from Google (Mikolov) word2vec
   
@@ -43,7 +43,7 @@ def load_embedding_w2v(fname):
     logging.info('Loading complete.')
     return word_vecs
 
-def load_embedding_glove(fname):
+def __load_embedding_glove(fname):
     """
     Loads word vecs from Glove
   
@@ -64,7 +64,7 @@ def load_embedding_glove(fname):
     logging.info('Loading complete.')
     return word2vec
 
-def convert_embedding(outputfile, embeddingfile, format='word2vec'):
+def __convert_embedding(outputfile, embeddingfile, format='word2vec'):
     """
     Convert embedding file into a format easier to read.
     Embedding file will be loaded and convert into a {string:numpy.array}
@@ -76,9 +76,9 @@ def convert_embedding(outputfile, embeddingfile, format='word2vec'):
         format: string  can be word2vec or glove
     """
     if (format == 'word2vec'):
-        word2vec = load_embedding_w2v(embeddingfile)
+        word2vec = __load_embedding_w2v(embeddingfile)
     elif (format == 'glove'):
-        word2vec = load_embedding_glove(embeddingfile)
+        word2vec = __load_embedding_glove(embeddingfile)
     else:
         logging.error('embedding format can only be word2vec or glove')
 
@@ -86,7 +86,7 @@ def convert_embedding(outputfile, embeddingfile, format='word2vec'):
     pickle.dump(word2vec, open(outputfile, 'wb'))
     logging.info('Dumpping complete.')
 
-def load_parsed_embedding(embeddingfile):
+def load_embedding(embeddingfile):
     '''
     Load parsed embedding file.
 
@@ -98,6 +98,7 @@ def load_parsed_embedding(embeddingfile):
         dictionary of {string:numpy.array}
     '''
     return pickle.load(open(embeddingfile, 'rb'))
+
 
 if (__name__ == '__main__'):
     '''
@@ -123,4 +124,4 @@ if (__name__ == '__main__'):
     parent_dir = os.path.abspath(os.path.join(args.output, os.pardir))
     if (not os.path.exists(parent_dir)):
         os.makedirs(parent_dir)
-    convert_embedding(args.output, args.input, args.format)
+    __convert_embedding(args.output, args.input, args.format)
