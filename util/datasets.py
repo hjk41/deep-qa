@@ -536,10 +536,10 @@ def extract_word_vectors(indices, vectors):
         vectors:    numpy.array(num_embedding_vectors, embedding_dim)
 
     Returns:
-        float[num_samples, sentense_length]
+        float[num_samples, sentense_length, embedding_dim]
     '''
-    return emb[data.astype(numpy.int).flatten()].reshape(
-        (data.shape[0], 1, data.shape[1], emb.shape[1]))
+    return vectors[indices.astype(numpy.int).flatten()].reshape(
+        (indices.shape[0], indices.shape[1], vectors.shape[1]))
 
 
 if (__name__ == '__main__'):
