@@ -15,9 +15,12 @@ from utils import setup_logger, enable_ptvsd
 
 MAX_SENT_LENGTH = 70
 
-class QADataset():
+
+class QADatasetRaw():
     '''
     Represents a dataset in answer sentense selection problem.
+    
+    This is raw data, meaning q and a are stored as words, not index.
 
     Fields:
         qids:    int(num_samples,)    question ids for each sample
@@ -30,6 +33,28 @@ class QADataset():
         self.q = q
         self.a = a
         self.labels = labels
+
+
+class QADataset():
+    '''
+    Represents a dataset in answer sentense selection problem.
+    
+    This is parsed data, q and a are indexes.
+
+    Fields:
+        qids:    int(num_samples,)    question ids for each sample
+        q:    numpy.array(num_samples, MAX_SENT_LENGTH)    index array
+        a:    numpy.array(num_samples, MAX_SENT_LENGTH)    index array
+        labels:    numpy.array(num_samples,)    label for each sample
+    '''
+    def __init__(self, qids, q, a, labels, q_overlap, a_overlap):
+        self.qids = qids
+        self.q = q
+        self.a = a
+        self.labels = labels
+        self.q_overlap = q_overlap
+        self.a_overlap = a_overlap
+
 
 def __load_trec(fname, max_sent_length=MAX_SENT_LENGTH, skip_long_sent=False):
     '''
@@ -92,7 +117,8 @@ def __load_trec(fname, max_sent_length=MAX_SENT_LENGTH, skip_long_sent=False):
             qids.append(qid)
     logging.info('Loading complete')
     logging.info('Number of long senteses: {}'.format(num_long_sentense))
-    return QADataset(qids, questions, answers, labels)
+    return QADatasetRaw(qids, questions, answers, labels)
+
 
 def __passage2list(psg):
     '''
@@ -142,6 +168,7 @@ def __passage2list(psg):
     if not isFirstChar:
         list.append(psg[wordStart:pos])
     return list
+
 
 def __load_tsv(fname, max_sent_length=MAX_SENT_LENGTH,
              skip_long_sent=False, treat_good='remove',
@@ -221,7 +248,8 @@ def __load_tsv(fname, max_sent_length=MAX_SENT_LENGTH,
         lineids.append(i)
     logging.info('Loading complete')
     logging.info('Number of long senteses: {}'.format(num_long_sents))
-    return QADataset(qids, questions, answers, labels)
+    return QADatasetRaw(qids, questions, answers, labels)
+
 
 def __convert_dataset(inputfile, outputdir, format='trec'):
     '''
@@ -254,7 +282,8 @@ def __convert_dataset(inputfile, outputdir, format='trec'):
     pickle.dump(dataset.labels, open(os.path.join(outputdir, 'labels.pickle'), 'wb'))
     logging.info('Done!')
 
-def load_dataset(datadir):
+
+def __load_raw_dataset(datadir):
     '''
     Load an answer selection dataset
 
@@ -262,14 +291,16 @@ def load_dataset(datadir):
         datadir:    string    path to the directory storing dataset files
 
     Returns:
-        QADataset
+        QADatasetRaw
     '''
-    return QADataset(pickle.load(open(os.path.join(datadir, 'qids.pickle'))),
-                     pickle.load(open(os.path.join(datadir, 'questions.pickle'))),
-                     pickle.load(open(os.path.join(datadir, 'answers.pickle'))),
-                     pickle.load(open(os.path.join(datadir, 'labels.pickle'))))
+    return QADatasetRaw(pickle.load(open(os.path.join(datadir, 'qids.pickle'), 'rb')),
+                     pickle.load(open(os.path.join(datadir, 'questions.pickle'), 'rb')),
+                     pickle.load(open(os.path.join(datadir, 'answers.pickle'), 'rb')),
+                     pickle.load(open(os.path.join(datadir, 'labels.pickle'), 'rb')))
 
-def compute_overlap_features(questions, answers, word2df=None, stoplist=None):
+
+def __compute_overlap_features_given_word_vector(questions, answers, 
+                                                 word2df=None, stoplist=None):
     '''
     compute overlap features
     there are two overlap features: overlap ratio with and without IDF
@@ -296,15 +327,12 @@ def compute_overlap_features(questions, answers, word2df=None, stoplist=None):
         df_overlap /= (len(q_set) + len(a_set))
         #df_overlap /= total_dfs
 
-        feats_overlap.append(np.array([
-                                                 overlap,
-                                                 df_overlap,
-                                                 ]))
-    return np.array(feats_overlap)
+        feats_overlap.append(numpy.array([overlap, df_overlap]))
+    return numpy.array(feats_overlap)
 
 
-def compute_overlap_idx(questions, answers, stoplist, 
-                        max_sent_length):
+def __compute_overlap_idx_given_word_vector(questions, answers, stoplist, 
+                        max_q_length, max_a_length):
     '''
     Compute overlap feature of q and a.
 
@@ -318,7 +346,8 @@ def compute_overlap_idx(questions, answers, stoplist,
         questions:    string(num_samples, q_len<max_sent_length)
         answers:    string(num_samples, a_len<max_sent_length)
         stoplist:    string(list_len,)    list of stop words
-        max_sent_length:    int    max sentense length
+        max_q_length:    int    max sentense length of questions
+        max_a_length:    int    max sentense length of answers
 
     Returns:
         q_overlap:    int(num_samples, max_sent_length)
@@ -332,27 +361,28 @@ def compute_overlap_idx(questions, answers, stoplist,
         a_set = set([a for a in answer if a not in stoplist])
         word_overlap = q_set.intersection(a_set)
         # so 0 is non-overlap, 1 is overlap, and 2 is empty word
-        q_idx = np.ones(max_sent_length) * 2        
+        q_idx = numpy.ones(max_q_length) * 2        
         for i, q in enumerate(question):
             value = 0
             if q in word_overlap:
                 value = 1
             q_idx[i] = value
         q_indices.append(q_idx)
-        a_idx = np.ones(max_sent_length) * 2
+        a_idx = numpy.ones(max_a_length) * 2
         for i, a in enumerate(answer):
             value = 0
             if a in word_overlap:
                 value = 1
             a_idx[i] = value
         a_indices.append(a_idx)
-    q_indices = np.vstack(q_indices).astype('int32')
-    a_indices = np.vstack(a_indices).astype('int32')
+    q_indices = numpy.vstack(q_indices).astype('int32')
+    a_indices = numpy.vstack(a_indices).astype('int32')
     return q_indices, a_indices
 
-def compute_idf(docs):
+
+def __compute_idf_given_word_vector(docs):
     '''
-    Compute Inverse Document Frequency
+    Compute Inverse Document Frequency (IDF) given q, a as word vectors
 
     IDF=log(N/len(doc if w in doc))
 
@@ -368,10 +398,11 @@ def compute_idf(docs):
             word2df[w] += 1.0
     num_docs = len(docs)
     for w, value in word2df.iteritems():
-        word2df[w] = np.math.log(num_docs / value)
+        word2df[w] = numpy.math.log(num_docs / value)
     return word2df
 
-def convert2indices(data, alphabet, 
+
+def __convert2indices(data, alphabet, 
                     unknown_word_idx_inc=0,
                     empty_word_idx_inc=1, 
                     max_sent_length=MAX_SENT_LENGTH):
@@ -398,7 +429,7 @@ def convert2indices(data, alphabet,
     empty_word_idx = len(alphabet) + empty_word_idx_inc
     num_unknown_words = 0
     for sentence in data:
-        ex = np.ones(max_sent_length) * empty_word_idx
+        ex = numpy.ones(max_sent_length) * empty_word_idx
         for i, token in enumerate(sentence):
             idx = alphabet.get(token, unknown_word_idx)
             if (idx == unknown_word_idx):
@@ -408,6 +439,107 @@ def convert2indices(data, alphabet,
     data_idx = numpy.array(data_idx, dtype='int32')
     logging.info('Number of unknown words: {}'.format(num_unknown_words))
     return data_idx
+
+
+class NegativeSamplingIterator(object):
+    """ select a positive example and (batch-size - 1) random negative ones """
+    def __init__(self, rng, qadataset, batch_size=100):
+        self.rng = rng
+        self.batch_size = batch_size
+        self.n_samples = qadataset.qids.shape[0]
+        self.dataset = qadataset
+        self.n_batches = (self.n_samples + self.batch_size - 1) / self.batch_size
+        self.positive_example_idx = [idx for idx in xrange(self.n_samples) 
+                                     if self.dataset.labels[idx] == 1]
+        self.n_positive = len(self.positive_example_idx)
+
+    def __len__(self):
+        return self.n_batches
+
+    def __iter__(self):
+        n_batches = self.n_batches
+        batch_size = self.batch_size
+        n_samples = self.n_samples
+        for _ in xrange(n_batches):
+            i = self.rng.randint(self.n_positive)
+            pos = self.positive_example_idx[i]
+            qid_pos = self.dataset.qids[pos]
+
+            q = [self.dataset.q[pos]]
+            a = [self.dataset.a[pos]]
+            q_overlap = [self.dataset.q_overlap[pos]]
+            a_overlap = [self.dataset.a_overlap[pos]]
+            labels = [self.dataset.labels[pos]]
+            q_pos = q[0]
+            q_overlap_pos = q_overlap[0]
+            # look for negative examples
+            while len(labels) < self.batch_size:
+                i = self.rng.randint(self.n_samples)
+                if (self.dataset.qids[i] != qid_pos):
+                    q.append(q_pos)
+                    q_overlap.append(q_overlap_pos)
+                    a.append(self.dataset.a[i])                    
+                    a_overlap.append(self.dataset.a_overlap[i])
+                    labels.append(0)
+            yield [numpy.array(q, dtype=numpy.float32), 
+                         numpy.array(a, dtype=numpy.float32), 
+                         numpy.array(q_overlap, dtype=numpy.float32),
+                         numpy.array(a_overlap, dtype=numpy.float32),
+                         numpy.array(labels, dtype=numpy.float32)]
+
+
+def load_dataset(inputdir, alphabet,
+                 with_overlap_features = False,
+                 stoplist = None):
+    '''
+    Load a raw dataset and convert to indexes with the embedding.
+
+    Params:
+        inputdir:    string    path to the directory where raw data is stored
+        alphabet:    {string:int}    word to index
+        with_overlap_features:    bool    whether to include overlap features
+        stoplist:    string[]    list of stop words when computing overlap features
+
+    Returns:
+        QADataset
+    '''
+    raw_data = __load_raw_dataset(inputdir)
+    logging.info('converting q into indices')
+    max_q_length = max([len(q) for q in raw_data.q])
+    q = __convert2indices(raw_data.q, alphabet, max_sent_length=max_q_length)
+    logging.info('converting a into indices')
+    max_a_length = max([len(a) for a in raw_data.a])
+    a = __convert2indices(raw_data.a, alphabet, max_sent_length=max_a_length)
+    if (with_overlap_features):
+        q_overlap, a_overlap = __compute_overlap_idx_given_word_vector(raw_data.q, 
+                                                                       raw_data.a,
+                                                                       stoplist,
+                                                                       max_q_length,
+                                                                       max_a_length)
+    else:
+        q_overlap = None
+        a_overlap = None
+    return QADataset(raw_data.qids,
+                     q,
+                     a,
+                     numpy.asarray(raw_data.labels),
+                     q_overlap,
+                     a_overlap)
+
+
+def extract_word_vectors(indices, vectors):
+    '''
+    Extract word vectors given indices
+
+    Params:
+        indices:    int[num_samples, sentense_length]    indexes of each word
+        vectors:    numpy.array(num_embedding_vectors, embedding_dim)
+
+    Returns:
+        float[num_samples, sentense_length]
+    '''
+    return emb[data.astype(numpy.int).flatten()].reshape(
+        (data.shape[0], 1, data.shape[1], emb.shape[1]))
 
 
 if (__name__ == '__main__'):

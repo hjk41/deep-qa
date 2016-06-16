@@ -154,68 +154,6 @@ def deep_qa_net(batch_size,
                                           name="nnet")
   return nnet
 
-class QADataset():
-  def __init__(self, qids, q, a, q_overlap, a_overlap, labels):
-    self.qids = qids
-    self.q = q
-    self.a = a
-    self.q_overlap = q_overlap
-    self.a_overlap = a_overlap
-    self.labels = labels
-
-class NegativeSamplingIterator(object):
-  """ select a positive example and (batch-size - 1) random negative ones """
-  def __init__(self, rng, qadataset, batch_size=100):
-    self.rng = rng
-    self.batch_size = batch_size
-    self.n_samples = qadataset.qids.shape[0]
-    self.dataset = qadataset
-    self.n_batches = (self.n_samples + self.batch_size - 1) / self.batch_size
-    self.positive_example_idx = [idx for idx in xrange(self.n_samples) if self.dataset.labels[idx] == 1]
-    self.n_positive = len(self.positive_example_idx)
-
-  def __len__(self):
-    return self.n_batches
-
-  def __iter__(self):
-    n_batches = self.n_batches
-    batch_size = self.batch_size
-    n_samples = self.n_samples
-    for _ in xrange(n_batches):
-      i = self.rng.randint(self.n_positive)
-      pos = self.positive_example_idx[i]
-      qid_pos = self.dataset.qids[pos]
-
-      q = [self.dataset.q[pos]]
-      a = [self.dataset.a[pos]]
-      q_overlap = [self.dataset.q_overlap[pos]]
-      a_overlap = [self.dataset.a_overlap[pos]]
-      labels = [self.dataset.labels[pos]]
-      q_pos = q[0]
-      q_overlap_pos = q_overlap[0]
-      # look for negative examples
-      while len(labels) < self.batch_size:
-        i = self.rng.randint(self.n_samples)
-        if (self.dataset.qids[i] != qid_pos):
-          q.append(q_pos)
-          q_overlap.append(q_overlap_pos)
-          a.append(self.dataset.a[i])          
-          a_overlap.append(self.dataset.a_overlap[i])
-          labels.append(0)
-      yield [numpy.array(q, dtype=numpy.float32), 
-             numpy.array(a, dtype=numpy.float32), 
-             numpy.array(q_overlap, dtype=numpy.float32),
-             numpy.array(a_overlap, dtype=numpy.float32),
-             numpy.array(labels, dtype=numpy.float32)]
-
-
-def to1hot(data):
-  b = numpy.zeros((data.shape[0], data.shape[1], n_overlap_choices))
-  for i in range(data.shape[0]):
-      for j in range(data.shape[1]):
-        b[i, j, data[i, j]] = 1.0
-  return b
-
 def embed(data, emb):
   return emb[data.astype(numpy.int).flatten()].reshape((data.shape[0], 1, data.shape[1], emb.shape[1]))
 

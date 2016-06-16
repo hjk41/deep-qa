@@ -11,6 +11,7 @@ import pickle
 
 from utils import setup_logger, enable_ptvsd
 
+
 def __load_embedding_w2v(fname):
     """
     Loads word vecs from Google (Mikolov) word2vec
@@ -43,6 +44,7 @@ def __load_embedding_w2v(fname):
     logging.info('Loading complete.')
     return word_vecs
 
+
 def __load_embedding_glove(fname):
     """
     Loads word vecs from Glove
@@ -63,6 +65,7 @@ def __load_embedding_glove(fname):
     logging.info('vocab_size=%d, embedding_dim=%d', len(word2vec), embedding_dim)
     logging.info('Loading complete.')
     return word2vec
+
 
 def __convert_embedding(outputfile, embeddingfile, format='word2vec'):
     """
@@ -86,6 +89,7 @@ def __convert_embedding(outputfile, embeddingfile, format='word2vec'):
     pickle.dump(word2vec, open(outputfile, 'wb'))
     logging.info('Dumpping complete.')
 
+
 def load_embedding(embeddingfile):
     '''
     Load parsed embedding file.
@@ -95,9 +99,13 @@ def load_embedding(embeddingfile):
                                   convert_embedding
 
     Returns:
-        dictionary of {string:numpy.array}
+        alphabet:    {string:int}
+        vectors:    numpy.array(len(alphabet),embedding_dim)
     '''
-    return pickle.load(open(embeddingfile, 'rb'))
+    embedding = pickle.load(open(embeddingfile, 'rb'))
+    alphabet = {w:i for i,w in enumerate(embedding.keys())}
+    vectors = numpy.asarray(embedding.values()) 
+    return alphabet, vectors
 
 
 if (__name__ == '__main__'):
