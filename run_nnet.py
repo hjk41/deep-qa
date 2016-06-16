@@ -154,8 +154,6 @@ def deep_qa_net(batch_size,
                                           name="nnet")
   return nnet
 
-def embed(data, emb):
-  return emb[data.astype(numpy.int).flatten()].reshape((data.shape[0], 1, data.shape[1], emb.shape[1]))
 
 def load_data(input_dir):
   q = numpy.load(os.path.join(input_dir, 'questions.npy')).astype(numpy.float32)
